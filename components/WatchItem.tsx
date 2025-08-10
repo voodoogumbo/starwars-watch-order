@@ -320,6 +320,11 @@ export default function WatchItem({ item, storageState, onToggleKey, onSetKey, o
     onSaveState(newState);
   };
 
+  // Click handler for expand button
+  const handleExpandClick = () => {
+    handleExpand();
+  };
+
   // Render helpers
   const renderBadges = () => {
     if (!item.asterisks) return null;
@@ -375,7 +380,7 @@ export default function WatchItem({ item, storageState, onToggleKey, onSetKey, o
           <>
             <button 
               className="button button--ghost" 
-              onClick={handleExpand} 
+              onClick={handleExpandClick} 
               aria-expanded={expanded}
               aria-label={`${expanded ? 'Collapse' : 'Expand'} episode list for ${item.title}`}
               disabled={resolving}
