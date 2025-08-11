@@ -64,8 +64,8 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
           if (metaEntry) {
             // meta key format: series-meta:{slug}:{tmdbId}:{total}:{checkedCount}:{timestamp}
             const parts = metaEntry.split(":");
-            const total = Number(parts[4] ?? 0); // total is at index 4
-            const checked = Number(parts[5] ?? 0); // checked is at index 5
+            const total = Number(parts[3] ?? 0); // total is at index 3
+            const checked = Number(parts[4] ?? 0); // checked is at index 4
             if (total > 0) sumContrib += checked / total;
             else sumContrib += 0;
           } else {
@@ -112,8 +112,8 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
         const metaEntry = Object.keys(state).find((k) => k.startsWith(metaKeyPrefix));
         if (metaEntry) {
           const parts = metaEntry.split(":");
-          const total = Number(parts[4] ?? 0); // total is at index 4
-          const checked = Number(parts[5] ?? 0); // checked is at index 5
+          const total = Number(parts[3] ?? 0); // total is at index 3
+          const checked = Number(parts[4] ?? 0); // checked is at index 4
           return checked < total;
         }
         // fallback: if no meta, show it as remaining
