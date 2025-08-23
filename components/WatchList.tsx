@@ -112,10 +112,21 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
         const metaEntry = Object.keys(state).find((k) => k.startsWith(metaKeyPrefix));
         
         if (metaEntry) {
-          // Parse metadata: series-meta:{slug}:{tmdbId}:{totalEpisodes}:{checkedCount}:{totalRuntime}:{timestamp}
+          // Parse metadata with backwards compatibility
           const parts = metaEntry.split(":");
           const tmdbId = Number(parts[2]);
-          const seriesRuntime = Number(parts[5]) || 0; // Total series runtime
+          
+          let seriesRuntime = 0;
+          if (parts.length >= 7) {
+            // New format: series-meta:{slug}:{tmdbId}:{totalEpisodes}:{checkedCount}:{totalRuntime}:{timestamp}
+            const runtime = Number(parts[5]);
+            // Validate runtime is reasonable (< 100,000 minutes ≈ 1,667 hours per series)
+            if (runtime > 0 && runtime < 100000) {
+              seriesRuntime = runtime;
+            }
+          }
+          // Old format: series-meta:{slug}:{tmdbId}:{totalEpisodes}:{checkedCount}:{timestamp}
+          // Default to 0 runtime for old format (graceful fallback)
           
           totalMinutes += seriesRuntime;
           
