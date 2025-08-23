@@ -5,6 +5,8 @@ type Result = {
   media_type: "movie" | "tv";
   name: string;
   year?: number;
+  runtime?: number; // in minutes
+  rating?: number; // TMDB vote_average (0-10)
 };
 
 export async function GET(req: Request) {
@@ -85,12 +87,37 @@ export async function GET(req: Request) {
 
     const name = chosen.name ?? chosen.title ?? chosen.original_name ?? chosen.original_title ?? title;
     const id = chosen.id;
+    const rating = chosen.vote_average ?? undefined;
+
+    let runtime: number | undefined;
+    
+    // For movies, fetch detailed info to get runtime
+    if (mediaType === "movie") {
+      try {
+        const movieDetailsResp = await fetch(`https://api.themoviedb.org/3/movie/${id}`, {
+          headers: {
+            Authorization: `Bearer ${bearer}`,
+            "Content-Type": "application/json"
+          },
+          next: { revalidate: 86400 }
+        });
+        
+        if (movieDetailsResp.ok) {
+          const movieDetails = await movieDetailsResp.json();
+          runtime = movieDetails.runtime ?? undefined;
+        }
+      } catch (error) {
+        console.warn(`Failed to fetch movie details for ID ${id}:`, error);
+      }
+    }
 
     const result: Result = {
       id,
       media_type: mediaType === "movie" ? "movie" : "tv",
       name,
-      year: (chosen.first_air_date ?? chosen.release_date ?? "").slice(0, 4) || undefined
+      year: (chosen.first_air_date ?? chosen.release_date ?? "").slice(0, 4) || undefined,
+      runtime,
+      rating
     };
 
     return NextResponse.json(result, {

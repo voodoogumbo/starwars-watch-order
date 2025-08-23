@@ -6,6 +6,42 @@ export type WatchItem = {
   year: number;
   type: WatchType;
   asterisks?: number;  // 1,2,3 = *, **, ***
+  // Runtime and rating data (fetched from TMDB)
+  runtime?: number;    // total runtime in minutes
+  rating?: number;     // TMDB vote_average (0-10)
+};
+
+// Extended type for resolved TMDB data
+export type ResolvedMediaData = {
+  id: number;
+  media_type: "movie" | "tv";
+  name: string;
+  year?: number;
+  runtime?: number;    // in minutes
+  rating?: number;     // TMDB vote_average (0-10)
+};
+
+// TV series episode data structure
+export type EpisodeData = {
+  id: number;
+  episode_number: number;
+  name: string;
+  air_date: string | null;
+  runtime: number | null;
+};
+
+export type SeasonData = {
+  season_number: number;
+  episodes: EpisodeData[];
+  runtime?: number;    // total season runtime in minutes
+};
+
+export type TVSeriesData = {
+  id: number;
+  name: string;
+  rating?: number;     // TMDB vote_average (0-10)
+  runtime?: number;    // total series runtime in minutes
+  seasons: SeasonData[];
 };
 
 const slug = (s: string) =>

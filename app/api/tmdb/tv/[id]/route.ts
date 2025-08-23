@@ -79,15 +79,28 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
     const seasonsWithEpisodes = await Promise.all(seasonPromises);
 
+    // Calculate total runtime and per-season runtimes
+    let totalRuntime = 0;
+    const seasonsWithRuntimes = seasonsWithEpisodes
+      .sort((a: any, b: any) => a.season_number - b.season_number)
+      .map((s: any) => {
+        const episodes = s.episodes.sort((a: any, b: any) => a.episode_number - b.episode_number);
+        const seasonRuntime = episodes.reduce((sum: number, ep: any) => sum + (ep.runtime || 0), 0);
+        totalRuntime += seasonRuntime;
+        
+        return {
+          season_number: s.season_number,
+          episodes,
+          runtime: seasonRuntime > 0 ? seasonRuntime : undefined
+        };
+      });
+
     const result = {
       id: tv.id,
       name: tv.name ?? tv.original_name,
-      seasons: seasonsWithEpisodes
-        .sort((a: any, b: any) => a.season_number - b.season_number)
-        .map((s: any) => ({
-          season_number: s.season_number,
-          episodes: s.episodes.sort((a: any, b: any) => a.episode_number - b.episode_number)
-        }))
+      rating: tv.vote_average ?? undefined,
+      runtime: totalRuntime > 0 ? totalRuntime : undefined,
+      seasons: seasonsWithRuntimes
     };
 
     return NextResponse.json(result, {

@@ -5,6 +5,7 @@ import ProgressBar from "./ProgressBar";
 import { loadState, resetState, setKey, toggleKey, StorageState } from "@/lib/storage";
 import WatchItem from "./WatchItem";
 import ErrorBoundary from "./ErrorBoundary";
+import { calculateWatchedSeriesRuntime } from "@/lib/runtime";
 
 export default function WatchList({ items }: { items: WatchItemType[] }) {
   const [query, setQuery] = useState("");
@@ -62,7 +63,7 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
           const metaKeyPrefix = `series-meta:${it.id}:`;
           const metaEntry = Object.keys(state).find((k) => k.startsWith(metaKeyPrefix));
           if (metaEntry) {
-            // meta key format: series-meta:{slug}:{tmdbId}:{total}:{checkedCount}:{timestamp}
+            // meta key format: series-meta:{slug}:{tmdbId}:{total}:{checkedCount}:{totalRuntime}:{timestamp}
             const parts = metaEntry.split(":");
             const total = Number(parts[3] ?? 0); // total is at index 3
             const checked = Number(parts[4] ?? 0); // checked is at index 4
@@ -78,6 +79,69 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
 
     const percent = (sumContrib / countedTitles) * 100;
     return Math.round(percent * 100) / 100;
+  }, [state, items]);
+
+  // Compute runtime-based progress
+  const runtimeProgress = useMemo(() => {
+    let totalMinutes = 0;
+    let watchedMinutes = 0;
+
+    for (const item of items) {
+      if (item.type === "movie") {
+        const movieKey = `movie:${item.id}`;
+        
+        // Try to get movie runtime from resolve metadata
+        const resolveMetaKey = Object.keys(state).find(k => 
+          k.startsWith(`movie-meta:${item.id}:`)
+        );
+        
+        let movieRuntime = 0;
+        if (resolveMetaKey) {
+          // Parse runtime from metadata key: movie-meta:{id}:{tmdbId}:{runtime}:{rating}:{timestamp}
+          const parts = resolveMetaKey.split(":");
+          movieRuntime = Number(parts[3]) || 0;
+        }
+        
+        totalMinutes += movieRuntime;
+        if (state[movieKey] && movieRuntime > 0) {
+          watchedMinutes += movieRuntime;
+        }
+      } else {
+        // For series, check metadata for runtime info
+        const metaKeyPrefix = `series-meta:${item.id}:`;
+        const metaEntry = Object.keys(state).find((k) => k.startsWith(metaKeyPrefix));
+        
+        if (metaEntry) {
+          // Parse metadata: series-meta:{slug}:{tmdbId}:{totalEpisodes}:{checkedCount}:{totalRuntime}:{timestamp}
+          const parts = metaEntry.split(":");
+          const tmdbId = Number(parts[2]);
+          const seriesRuntime = Number(parts[5]) || 0; // Total series runtime
+          
+          totalMinutes += seriesRuntime;
+          
+          // Check if entire series is marked complete
+          const seriesKey = `movie:${item.id}`;
+          if (state[seriesKey]) {
+            watchedMinutes += seriesRuntime;
+          } else {
+            // Calculate watched runtime from individual episodes
+            // This would require access to the episode data, which we don't have here
+            // For now, estimate based on episode completion ratio
+            const totalEpisodes = Number(parts[3]) || 0;
+            const checkedEpisodes = Number(parts[4]) || 0;
+            if (totalEpisodes > 0 && seriesRuntime > 0) {
+              const avgEpisodeRuntime = seriesRuntime / totalEpisodes;
+              watchedMinutes += checkedEpisodes * avgEpisodeRuntime;
+            }
+          }
+        }
+      }
+    }
+
+    return {
+      totalMinutes: Math.round(totalMinutes),
+      watchedMinutes: Math.round(watchedMinutes)
+    };
   }, [state, items]);
 
   // Quick counts - only count actual watched items, not metadata
@@ -134,7 +198,11 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
             </div>
           </div>
           <div style={{ width: 360, maxWidth: "50%" }} role="img" aria-label={`Progress: ${computeProgress}% complete`}>
-            <ProgressBar percent={computeProgress} />
+            <ProgressBar 
+              percent={computeProgress} 
+              watchedMinutes={runtimeProgress.watchedMinutes}
+              totalMinutes={runtimeProgress.totalMinutes}
+            />
           </div>
         </div>
 

@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { WatchItem as WatchItemType } from "@/data/watchOrder";
 import { loadState, saveState, setKey as storageSetKey, toggleKey as storageToggleKey, StorageState } from "@/lib/storage";
 import { EpisodeListSkeleton } from "./Skeleton";
+import { formatRuntime, formatRating } from "@/lib/runtime";
 
 type Props = {
   item: WatchItemType;
@@ -17,6 +18,7 @@ export default function WatchItem({ item, storageState, onToggleKey, onSetKey, o
   const [resolving, setResolving] = useState(false);
   const [tmdbId, setTmdbId] = useState<number | null>(null);
   const [tvData, setTvData] = useState<any | null>(null);
+  const [movieData, setMovieData] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastFetched, setLastFetched] = useState<number | null>(null);
   const isMovie = item.type === "movie";
@@ -27,12 +29,42 @@ export default function WatchItem({ item, storageState, onToggleKey, onSetKey, o
   const metaKeyPrefix = `series-meta:${item.id}:`;
 
   useEffect(() => {
-    // attempt to find any existing meta key for this series in storageState and parse tmdbId if present
-    if (!isMovie) {
+    if (isMovie) {
+      // attempt to find existing movie metadata
+      const movieMetaPrefix = `movie-meta:${item.id}:`;
+      const movieMeta = Object.keys(storageState).find((k) => k.startsWith(movieMetaPrefix));
+      if (movieMeta) {
+        const parts = movieMeta.split(":");
+        // format: movie-meta:{slug}:{tmdbId}:{runtime}:{rating}:{timestamp}
+        const idPart = parts[2];
+        const runtimePart = parts[3];
+        const ratingPart = parts[4];
+        const timestampPart = parts[5];
+        const idNum = Number(idPart);
+        const runtime = Number(runtimePart);
+        const rating = Number(ratingPart);
+        const timestamp = Number(timestampPart);
+        
+        if (!Number.isNaN(idNum)) {
+          setTmdbId(idNum);
+        }
+        if (!Number.isNaN(timestamp)) {
+          setLastFetched(timestamp);
+        }
+        
+        // Set movie data from metadata
+        setMovieData({
+          id: idNum,
+          runtime: runtime > 0 ? runtime : undefined,
+          rating: rating > 0 ? rating : undefined
+        });
+      }
+    } else {
+      // attempt to find any existing meta key for this series in storageState and parse tmdbId if present
       const meta = Object.keys(storageState).find((k) => k.startsWith(metaKeyPrefix));
       if (meta) {
         const parts = meta.split(":");
-        // format: series-meta:{slug}:{tmdbId}:{total}:{checked}:{timestamp}
+        // format: series-meta:{slug}:{tmdbId}:{total}:{checked}:{totalRuntime}:{timestamp}
         const idPart = parts[2];
         const timestampPart = parts[6];
         const idNum = Number(idPart);
@@ -67,9 +99,72 @@ export default function WatchItem({ item, storageState, onToggleKey, onSetKey, o
     return lastFetched < thirtyDaysAgo;
   }, [lastFetched]);
 
+  // Fetch movie runtime and rating data
+  const fetchMovieData = async () => {
+    if (!isMovie || movieData || resolving) return;
+    
+    try {
+      setResolving(true);
+      setError(null);
+
+      // Resolve TMDB ID for the movie
+      const resolveResp = await fetch(`/api/tmdb/resolve?title=${encodeURIComponent(item.title)}&year=${item.year}&type=movie`);
+      if (!resolveResp.ok) {
+        throw new Error(`TMDB resolve failed: ${resolveResp.status} ${resolveResp.statusText}`);
+      }
+      
+      const resolveData = await resolveResp.json();
+      if (resolveData.error) {
+        throw new Error(resolveData.message || resolveData.error);
+      }
+      if (!resolveData || !resolveData.id) {
+        throw new Error("No TMDB id found for this movie");
+      }
+
+      const movieInfo = {
+        id: resolveData.id,
+        runtime: resolveData.runtime,
+        rating: resolveData.rating
+      };
+
+      setMovieData(movieInfo);
+      setTmdbId(resolveData.id);
+
+      // Store movie metadata: movie-meta:{slug}:{tmdbId}:{runtime}:{rating}:{timestamp}
+      const timestamp = Date.now();
+      const runtime = resolveData.runtime || 0;
+      const rating = resolveData.rating || 0;
+      const metaKey = `movie-meta:${item.id}:${resolveData.id}:${runtime}:${rating}:${timestamp}`;
+      
+      const currentState = loadState();
+      const newState = { ...currentState };
+      
+      // Remove any old movie metadata
+      const movieMetaPrefix = `movie-meta:${item.id}:`;
+      Object.keys(newState).forEach(k => {
+        if (k.startsWith(movieMetaPrefix)) delete newState[k];
+      });
+      
+      newState[metaKey] = true;
+      saveState(newState);
+      onSaveState(newState);
+      setLastFetched(timestamp);
+      
+    } catch (err: any) {
+      console.error('Error fetching movie data:', err);
+      setError(String(err?.message ?? err));
+    } finally {
+      setResolving(false);
+    }
+  };
+
   // Toggle movie/series checked
-  const toggleMovie = () => {
+  const toggleMovie = async () => {
     if (isMovie) {
+      // For movies, try to fetch runtime data if we don't have it
+      if (!movieData && !resolving) {
+        await fetchMovieData();
+      }
       onToggleKey(movieKey);
     } else {
       // For series: toggle top-level completion and handle bulk episode actions
@@ -110,7 +205,8 @@ export default function WatchItem({ item, storageState, onToggleKey, onSetKey, o
           const totalEpisodes = allEpisodes.length;
           const checkedEpisodes = wasChecked ? 0 : totalEpisodes;
           const timestamp = Date.now();
-          const metaKey = `series-meta:${item.id}:${tmdbId}:${totalEpisodes}:${checkedEpisodes}:${timestamp}`;
+          const totalRuntime = tvData?.runtime || 0;
+          const metaKey = `series-meta:${item.id}:${tmdbId}:${totalEpisodes}:${checkedEpisodes}:${totalRuntime}:${timestamp}`;
           newState[metaKey] = true;
           
           saveState(newState);
@@ -206,7 +302,8 @@ export default function WatchItem({ item, storageState, onToggleKey, onSetKey, o
         // Update checked count for metadata
         const checkedAfterSync = total;
         const timestamp = Date.now();
-        const metaKey = `series-meta:${item.id}:${idToFetch}:${total}:${checkedAfterSync}:${timestamp}`;
+        const totalRuntime = tvjson.runtime || 0;
+        const metaKey = `series-meta:${item.id}:${idToFetch}:${total}:${checkedAfterSync}:${totalRuntime}:${timestamp}`;
         newState[metaKey] = true;
         saveState(newState);
         onSaveState(newState);
@@ -222,9 +319,10 @@ export default function WatchItem({ item, storageState, onToggleKey, onSetKey, o
         }
       }
 
-      // add new meta key with timestamp: series-meta:{slug}:{tmdbId}:{total}:{checked}:{timestamp}
+      // add new meta key with timestamp: series-meta:{slug}:{tmdbId}:{total}:{checked}:{totalRuntime}:{timestamp}
       const timestamp = Date.now();
-      const metaKey = `series-meta:${item.id}:${idToFetch}:${total}:${checked}:${timestamp}`;
+      const totalRuntime = tvjson.runtime || 0; // Get total series runtime from API
+      const metaKey = `series-meta:${item.id}:${idToFetch}:${total}:${checked}:${totalRuntime}:${timestamp}`;
       nextState[metaKey] = true;
       saveState(nextState);
       onSaveState(nextState);
@@ -266,7 +364,8 @@ export default function WatchItem({ item, storageState, onToggleKey, onSetKey, o
         if (k.startsWith(metaKeyPrefix)) delete next[k];
       }
       const timestamp = Date.now();
-      const metaKey = `series-meta:${item.id}:${tmdbId}:${total}:${checked}:${timestamp}`;
+      const totalRuntime = tvData?.runtime || 0;
+      const metaKey = `series-meta:${item.id}:${tmdbId}:${total}:${checked}:${totalRuntime}:${timestamp}`;
       next[metaKey] = true;
       saveState(next);
       onSaveState(next);
@@ -313,7 +412,8 @@ export default function WatchItem({ item, storageState, onToggleKey, onSetKey, o
     const totalEpisodes = allEpisodes.length;
     const checkedEpisodes = watched ? totalEpisodes : 0;
     const timestamp = Date.now();
-    const metaKey = `series-meta:${item.id}:${tmdbId}:${totalEpisodes}:${checkedEpisodes}:${timestamp}`;
+    const totalRuntime = tvData?.runtime || 0;
+    const metaKey = `series-meta:${item.id}:${tmdbId}:${totalEpisodes}:${checkedEpisodes}:${totalRuntime}:${timestamp}`;
     newState[metaKey] = true;
     
     saveState(newState);
@@ -358,6 +458,23 @@ export default function WatchItem({ item, storageState, onToggleKey, onSetKey, o
           </div>
           <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 6 }}>
             {isMovie ? "Movie" : "Series"} {isMovie ? "" : bm(tvData)}
+            
+            {/* Runtime display */}
+            {isMovie && movieData?.runtime && (
+              <span style={{ marginLeft: 8 }}>• {formatRuntime(movieData.runtime)}</span>
+            )}
+            {!isMovie && tvData?.runtime && (
+              <span style={{ marginLeft: 8 }}>• {formatRuntime(tvData.runtime)}</span>
+            )}
+            
+            {/* Rating display */}
+            {isMovie && movieData?.rating && (
+              <span style={{ marginLeft: 8 }}>• ⭐ {formatRating(movieData.rating)}</span>
+            )}
+            {!isMovie && tvData?.rating && (
+              <span style={{ marginLeft: 8 }}>• ⭐ {formatRating(tvData.rating)}</span>
+            )}
+            
             {!isMovie && checkedMovie && (
               <span style={{ color: "var(--success)", marginLeft: 8 }}>✓ Complete</span>
             )}
