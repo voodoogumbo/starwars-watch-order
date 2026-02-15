@@ -5,7 +5,7 @@ import type { StorageAction, StorageState } from "@/lib/storage";
 import { EpisodeListSkeleton } from "./Skeleton";
 import { formatRuntime, formatRating } from "@/lib/runtime";
 
-const TMDB_IMG = "https://image.tmdb.org/t/p/w92";
+const TMDB_IMG = "https://image.tmdb.org/t/p/w154";
 
 type Props = {
   item: WatchItemType;
@@ -297,8 +297,8 @@ export default function WatchItem({ item, state, dispatch }: Props) {
             className="watch-item-poster"
             src={posterUrl}
             alt=""
-            width={46}
-            height={69}
+            width={66}
+            height={99}
             loading="lazy"
           />
         )}

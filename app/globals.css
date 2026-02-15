@@ -726,8 +726,8 @@ button { font: inherit; color: inherit; }
 
 /* Poster thumbnail */
 .watch-item-poster {
-  width: 46px;
-  height: 69px;
+  width: 66px;
+  height: 99px;
   border-radius: 6px;
   object-fit: cover;
   flex-shrink: 0;
