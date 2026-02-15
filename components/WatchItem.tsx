@@ -5,6 +5,8 @@ import type { StorageAction, StorageState } from "@/lib/storage";
 import { EpisodeListSkeleton } from "./Skeleton";
 import { formatRuntime, formatRating } from "@/lib/runtime";
 
+const TMDB_IMG = "https://image.tmdb.org/t/p/w92";
+
 type Props = {
   item: WatchItemType;
   state: StorageState;
@@ -37,6 +39,14 @@ export default function WatchItem({ item, state, dispatch }: Props) {
   const resolvedTmdbId = isMovie ? movieMeta?.tmdbId ?? null : seriesMeta?.tmdbId ?? null;
   const lastFetched = isMovie ? movieMeta?.fetchedAt ?? null : seriesMeta?.fetchedAt ?? null;
 
+  // Poster URL from meta or tvData
+  const posterUrl = useMemo(() => {
+    if (isMovie && movieMeta?.poster) return `${TMDB_IMG}${movieMeta.poster}`;
+    if (!isMovie && seriesMeta?.poster) return `${TMDB_IMG}${seriesMeta.poster}`;
+    if (!isMovie && tvData?.poster_path) return `${TMDB_IMG}${tvData.poster_path}`;
+    return null;
+  }, [isMovie, movieMeta, seriesMeta, tvData]);
+
   const totalEpisodesKnown = useMemo(() => {
     if (!tvData) return 0;
     return tvData.seasons.reduce((sum, s) => sum + (s.episodes?.length ?? 0), 0);
@@ -53,6 +63,18 @@ export default function WatchItem({ item, state, dispatch }: Props) {
     return lastFetched < Date.now() - 30 * 24 * 60 * 60 * 1000;
   }, [lastFetched]);
 
+  // Season-level progress
+  const seasonProgress = useMemo(() => {
+    if (!tvData || !resolvedTmdbId) return null;
+    return tvData.seasons.map((s) => {
+      const total = s.episodes?.length ?? 0;
+      const checked = s.episodes.filter(
+        (e) => !!state.watched[`tv:${resolvedTmdbId}:S${s.season_number}:E${e.episode_number}`]
+      ).length;
+      return { season: s.season_number, total, checked };
+    });
+  }, [tvData, resolvedTmdbId, state.watched]);
+
   const fetchMovieData = async () => {
     if (!isMovie || movieMeta || resolving) return;
     try {
@@ -68,7 +90,13 @@ export default function WatchItem({ item, state, dispatch }: Props) {
       dispatch({
         type: "UPDATE_MOVIE_META",
         slug: item.id,
-        meta: { tmdbId: data.id, runtime: data.runtime || 0, rating: data.rating || 0, fetchedAt: Date.now() },
+        meta: {
+          tmdbId: data.id,
+          runtime: data.runtime || 0,
+          rating: data.rating || 0,
+          poster: data.poster_path || undefined,
+          fetchedAt: Date.now(),
+        },
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -102,6 +130,7 @@ export default function WatchItem({ item, state, dispatch }: Props) {
             totalEpisodes: episodeKeys.length,
             checkedEpisodes: wasChecked ? 0 : episodeKeys.length,
             totalRuntime: tvData.runtime || 0,
+            poster: tvData.poster_path || seriesMeta?.poster,
             fetchedAt: Date.now(),
           },
         });
@@ -138,6 +167,7 @@ export default function WatchItem({ item, state, dispatch }: Props) {
       const total = tvjson.seasons.reduce((acc, s) => acc + (s.episodes?.length ?? 0), 0);
       const prefix = `tv:${idToFetch}:`;
       const checked = Object.keys(state.watched).filter((k) => k.startsWith(prefix)).length;
+      const poster = tvjson.poster_path || resolveData.poster_path || undefined;
 
       if (isChecked && checked < total) {
         const episodeKeys: string[] = [];
@@ -150,7 +180,7 @@ export default function WatchItem({ item, state, dispatch }: Props) {
         dispatch({
           type: "UPDATE_SERIES_META",
           slug: item.id,
-          meta: { tmdbId: idToFetch, totalEpisodes: total, checkedEpisodes: total, totalRuntime: tvjson.runtime || 0, fetchedAt: Date.now() },
+          meta: { tmdbId: idToFetch, totalEpisodes: total, checkedEpisodes: total, totalRuntime: tvjson.runtime || 0, poster, fetchedAt: Date.now() },
         });
         return;
       }
@@ -158,7 +188,7 @@ export default function WatchItem({ item, state, dispatch }: Props) {
       dispatch({
         type: "UPDATE_SERIES_META",
         slug: item.id,
-        meta: { tmdbId: idToFetch, totalEpisodes: total, checkedEpisodes: checked, totalRuntime: tvjson.runtime || 0, fetchedAt: Date.now() },
+        meta: { tmdbId: idToFetch, totalEpisodes: total, checkedEpisodes: checked, totalRuntime: tvjson.runtime || 0, poster, fetchedAt: Date.now() },
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -201,6 +231,7 @@ export default function WatchItem({ item, state, dispatch }: Props) {
         totalEpisodes: total,
         checkedEpisodes: newChecked,
         totalRuntime: tvData?.runtime || 0,
+        poster: seriesMeta?.poster,
         fetchedAt: Date.now(),
       },
     });
@@ -224,6 +255,7 @@ export default function WatchItem({ item, state, dispatch }: Props) {
         totalEpisodes: episodeKeys.length,
         checkedEpisodes: watched ? episodeKeys.length : 0,
         totalRuntime: tvData.runtime || 0,
+        poster: seriesMeta?.poster,
         fetchedAt: Date.now(),
       },
     });
@@ -244,6 +276,7 @@ export default function WatchItem({ item, state, dispatch }: Props) {
 
   return (
     <div className="list-item card list-item-card">
+      {/* Poster + checkbox column */}
       <div className="watch-item-row">
         <button
           className={`check ${isChecked ? "checked" : ""}`}
@@ -257,7 +290,18 @@ export default function WatchItem({ item, state, dispatch }: Props) {
         </button>
       </div>
 
+      {/* Poster + info */}
       <div className="watch-item-row" style={{ minWidth: 0 }}>
+        {posterUrl && (
+          <img
+            className="watch-item-poster"
+            src={posterUrl}
+            alt=""
+            width={46}
+            height={69}
+            loading="lazy"
+          />
+        )}
         <div className="watch-item-info">
           <div className="watch-item-title-row">
             <div className="watch-item-title">{item.title}</div>
@@ -281,6 +325,7 @@ export default function WatchItem({ item, state, dispatch }: Props) {
         </div>
       </div>
 
+      {/* Actions */}
       <div className="watch-item-actions">
         {!isMovie && (
           <>
@@ -308,6 +353,7 @@ export default function WatchItem({ item, state, dispatch }: Props) {
         )}
       </div>
 
+      {/* Error */}
       {error && (
         <div className="error-panel" role="alert">
           <div className="error-panel__message">
@@ -319,48 +365,67 @@ export default function WatchItem({ item, state, dispatch }: Props) {
         </div>
       )}
 
+      {/* Loading skeleton */}
       {!isMovie && expanded && resolving && <EpisodeListSkeleton />}
 
-      {!isMovie && expanded && tvData && (
-        <div className="episodes episodes-panel">
-          <div className="episode-actions">
-            <button className="button button--ghost episode-btn" onClick={() => markAllEpisodes(true)} aria-label={`Mark all episodes of ${item.title} as watched`}>
-              Mark All Watched
-            </button>
-            <button className="button button--ghost episode-btn" onClick={() => markAllEpisodes(false)} aria-label={`Mark all episodes of ${item.title} as unwatched`}>
-              Mark All Unwatched
-            </button>
-            <div className="episode-actions__count">{checkedEpisodesCount} of {totalEpisodesKnown} episodes watched</div>
-          </div>
-          {tvData.seasons.map((s) => (
-            <div key={s.season_number} style={{ display: "grid", gap: 6 }}>
-              <div className="season-heading">Season {s.season_number}</div>
-              {s.episodes.map((e) => {
-                const key = `tv:${resolvedTmdbId}:S${s.season_number}:E${e.episode_number}`;
-                const epChecked = !!state.watched[key];
-                return (
-                  <div key={key} className="episode-item">
-                    <button
-                      className={`check ${epChecked ? "checked" : ""}`}
-                      onClick={() => toggleEpisode(s.season_number, e.episode_number)}
-                      aria-pressed={epChecked}
-                      aria-label={`Mark episode ${e.episode_number}, "${e.name}" as ${epChecked ? "unwatched" : "watched"}`}
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ width: 12, height: 12 }}>
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    </button>
-                    <div className="episode-name">
-                      <div className="episode-title">{e.episode_number}. {e.name}</div>
-                      <div className="meta-text" style={{ marginTop: 0 }}>{e.air_date ?? "TBA"}</div>
+      {/* Episode list with smooth expand */}
+      <div className={`episodes-collapsible ${!isMovie && expanded && tvData ? "episodes-collapsible--open" : ""}`}>
+        {!isMovie && tvData && (
+          <div className="episodes episodes-panel">
+            <div className="episode-actions">
+              <button className="button button--ghost episode-btn" onClick={() => markAllEpisodes(true)} aria-label={`Mark all episodes of ${item.title} as watched`}>
+                Mark All Watched
+              </button>
+              <button className="button button--ghost episode-btn" onClick={() => markAllEpisodes(false)} aria-label={`Mark all episodes of ${item.title} as unwatched`}>
+                Mark All Unwatched
+              </button>
+              <div className="episode-actions__count">{checkedEpisodesCount} of {totalEpisodesKnown} episodes watched</div>
+            </div>
+            {tvData.seasons.map((s, idx) => {
+              const sp = seasonProgress?.[idx];
+              const pct = sp && sp.total > 0 ? Math.round((sp.checked / sp.total) * 100) : 0;
+              return (
+                <div key={s.season_number} style={{ display: "grid", gap: 6 }}>
+                  <div className="season-header">
+                    <div className="season-heading">Season {s.season_number}</div>
+                    <div className="season-progress">
+                      <div className="season-progress__bar">
+                        <div className="season-progress__fill" style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="season-progress__label">{sp?.checked ?? 0}/{sp?.total ?? 0}</span>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      )}
+                  {s.episodes.map((e) => {
+                    const key = `tv:${resolvedTmdbId}:S${s.season_number}:E${e.episode_number}`;
+                    const epChecked = !!state.watched[key];
+                    return (
+                      <div key={key} className="episode-item">
+                        <button
+                          className={`check ${epChecked ? "checked" : ""}`}
+                          onClick={() => toggleEpisode(s.season_number, e.episode_number)}
+                          aria-pressed={epChecked}
+                          aria-label={`Mark episode ${e.episode_number}, "${e.name}" as ${epChecked ? "unwatched" : "watched"}`}
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ width: 12, height: 12 }}>
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        </button>
+                        <div className="episode-name">
+                          <div className="episode-title">{e.episode_number}. {e.name}</div>
+                          <div className="meta-text" style={{ marginTop: 0 }}>
+                            {e.air_date ?? "TBA"}
+                            {e.runtime ? <span className="meta-text--inline">• {e.runtime}m</span> : null}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

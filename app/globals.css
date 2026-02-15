@@ -724,6 +724,71 @@ button { font: inherit; color: inherit; }
   cursor: help;
 }
 
+/* Poster thumbnail */
+.watch-item-poster {
+  width: 46px;
+  height: 69px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+}
+
+/* Smooth expand/collapse for episode list */
+.episodes-collapsible {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s ease;
+  grid-column: 1 / -1;
+}
+
+.episodes-collapsible--open {
+  grid-template-rows: 1fr;
+}
+
+.episodes-collapsible > .episodes {
+  overflow: hidden;
+}
+
+/* Season header with progress */
+.season-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.season-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.season-progress__bar {
+  width: 60px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  overflow: hidden;
+}
+
+.season-progress__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--success));
+  transition: width 0.3s ease;
+}
+
+.season-progress__label {
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 32px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Accessibility */
 @media (prefers-reduced-motion: reduce) {
   .stars, .lightsaber__beam { animation: none !important; transition: none !important; }

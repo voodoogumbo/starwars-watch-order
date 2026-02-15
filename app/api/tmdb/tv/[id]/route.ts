@@ -100,6 +100,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       name: tv.name ?? tv.original_name,
       rating: tv.vote_average ?? undefined,
       runtime: totalRuntime > 0 ? totalRuntime : undefined,
+      poster_path: tv.poster_path ?? undefined,
       seasons: seasonsWithRuntimes
     };
 

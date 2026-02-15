@@ -7,6 +7,7 @@ type Result = {
   year?: number;
   runtime?: number; // in minutes
   rating?: number; // TMDB vote_average (0-10)
+  poster_path?: string; // TMDB poster path
 };
 
 export async function GET(req: Request) {
@@ -117,7 +118,8 @@ export async function GET(req: Request) {
       name,
       year: (chosen.first_air_date ?? chosen.release_date ?? "").slice(0, 4) || undefined,
       runtime,
-      rating
+      rating,
+      poster_path: chosen.poster_path ?? undefined
     };
 
     return NextResponse.json(result, {

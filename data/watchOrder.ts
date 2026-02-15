@@ -39,8 +39,9 @@ export type SeasonData = {
 export type TVSeriesData = {
   id: number;
   name: string;
-  rating?: number;     // TMDB vote_average (0-10)
-  runtime?: number;    // total series runtime in minutes
+  rating?: number;      // TMDB vote_average (0-10)
+  runtime?: number;     // total series runtime in minutes
+  poster_path?: string; // TMDB poster path
   seasons: SeasonData[];
 };
 

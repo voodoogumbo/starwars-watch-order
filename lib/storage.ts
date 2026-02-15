@@ -9,6 +9,7 @@ export type MovieMeta = {
   tmdbId: number;
   runtime: number;   // minutes
   rating: number;    // 0-10
+  poster?: string;   // TMDB poster_path
   fetchedAt: number; // timestamp
 };
 
@@ -17,6 +18,7 @@ export type SeriesMeta = {
   totalEpisodes: number;
   checkedEpisodes: number;
   totalRuntime: number; // minutes
+  poster?: string;      // TMDB poster_path
   fetchedAt: number;    // timestamp
 };
 

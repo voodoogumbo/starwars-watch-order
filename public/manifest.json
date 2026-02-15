@@ -1,0 +1,16 @@
+{
+  "name": "Star Wars Watch Order",
+  "short_name": "SW Watch Order",
+  "description": "Track your progress through the Star Wars saga in chronological order",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#05060a",
+  "theme_color": "#00e5ff",
+  "icons": [
+    {
+      "src": "/favicon-r2.png",
+      "sizes": "any",
+      "type": "image/png"
+    }
+  ]
+}
