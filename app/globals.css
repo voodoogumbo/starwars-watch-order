@@ -179,7 +179,7 @@ button { font: inherit; color: inherit; }
 }
 @media (min-width: 720px) {
   .controls {
-    grid-template-columns: 1fr auto auto auto auto;
+    grid-template-columns: 1fr auto auto;
     align-items: center;
     gap: 16px;
   }
@@ -588,7 +588,144 @@ button { font: inherit; color: inherit; }
   padding: 10px;
 }
 
+/* Welcome banner */
+.welcome-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.08), rgba(255, 230, 0, 0.06));
+  border: 1px solid color-mix(in oklab, var(--accent), transparent 70%);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.welcome-banner__content {
+  flex: 1;
+}
+
+.welcome-banner__close {
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-size: 13px;
+  padding: 4px 12px;
+  min-height: 32px;
+}
+
+/* Toast notification */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 20px;
+  font-size: 13px;
+  color: var(--text);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  animation: toast-in 0.25s ease;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* More dropdown menu */
+.more-menu {
+  position: relative;
+}
+
+.more-menu__dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px;
+  min-width: 180px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  z-index: 50;
+  display: grid;
+  gap: 2px;
+}
+
+.more-menu__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.15s ease;
+}
+
+.more-menu__item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.more-menu__item--danger {
+  color: #ffd3d3;
+}
+
+.more-menu__item--danger:hover {
+  background: rgba(255, 59, 59, 0.12);
+}
+
+/* Empty state */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.empty-state__icon {
+  font-size: 32px;
+}
+
+.empty-state__text {
+  font-size: 15px;
+  max-width: 320px;
+}
+
+/* Legend for asterisk badges */
+.legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+  padding-top: 4px;
+}
+
+.legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Asterisk badge with tooltip hint */
+.badge--asterisk {
+  cursor: help;
+}
+
 /* Accessibility */
 @media (prefers-reduced-motion: reduce) {
   .stars, .lightsaber__beam { animation: none !important; transition: none !important; }
+  .toast { animation: none !important; }
 }

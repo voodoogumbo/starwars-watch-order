@@ -1,15 +1,25 @@
-import Link from "next/link";
+import { watchOrder } from "@/data/watchOrder";
+import WatchList from "@/components/WatchList";
+
+export const dynamic = "force-dynamic";
 
 export default function Home() {
   return (
-    <main style={{ padding: 24 }}>
-      <h1 style={{ margin: 0, fontSize: 28 }}>Star Wars Watch Order</h1>
-      <p style={{ marginTop: 8, opacity: 0.8 }}>
-        Open the full experience at the watch order page.
-      </p>
-      <p style={{ marginTop: 16 }}>
-        <Link href="/watch-order">Go to Watch Order →</Link>
-      </p>
+    <main style={{ padding: "clamp(16px, 4vw, 24px)", maxWidth: 1100, margin: "0 auto" }}>
+      <a href="#watch-list" className="skip-link">
+        Skip to watch list
+      </a>
+
+      <header className="page-header">
+        <h1 className="page-title">Star Wars — Watch Order</h1>
+        <p className="page-subtitle">
+          Star Wars Chronological Order Watchlist. Progress is saved locally.
+        </p>
+      </header>
+
+      <section id="watch-list" style={{ marginTop: 18 }}>
+        <WatchList items={watchOrder} />
+      </section>
     </main>
   );
 }

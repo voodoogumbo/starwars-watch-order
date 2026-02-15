@@ -11,6 +11,17 @@ type Props = {
   dispatch: React.Dispatch<StorageAction>;
 };
 
+function friendlyError(raw: string): string {
+  if (raw.includes("404")) return "Title not found on TMDB. It may not be listed yet.";
+  if (raw.includes("429")) return "Too many requests — please wait a moment and try again.";
+  if (raw.includes("500") || raw.includes("502") || raw.includes("503"))
+    return "TMDB is temporarily unavailable. Try again shortly.";
+  if (raw.includes("fetch") || raw.includes("network") || raw.includes("Failed"))
+    return "Network error — check your connection and try again.";
+  if (raw.includes("No TMDB id")) return "Could not find this title on TMDB.";
+  return raw;
+}
+
 export default function WatchItem({ item, state, dispatch }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [resolving, setResolving] = useState(false);
@@ -62,7 +73,7 @@ export default function WatchItem({ item, state, dispatch }: Props) {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("Error fetching movie data:", msg);
-      setError(msg);
+      setError(friendlyError(msg));
     } finally {
       setResolving(false);
     }
@@ -152,7 +163,7 @@ export default function WatchItem({ item, state, dispatch }: Props) {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(msg);
-      setError(msg);
+      setError(friendlyError(msg));
     } finally {
       setResolving(false);
     }
@@ -218,9 +229,17 @@ export default function WatchItem({ item, state, dispatch }: Props) {
     });
   };
 
+  const asteriskLabels: Record<number, string> = {
+    1: "Optional anthology — can be skipped",
+    2: "Supplementary — enriches the main story",
+    3: "Skippable — not essential viewing",
+  };
+
   const renderBadges = () => {
     if (!item.asterisks) return null;
-    return <span className="badge" aria-hidden>{"*".repeat(item.asterisks)}</span>;
+    const text = "*".repeat(item.asterisks);
+    const label = asteriskLabels[item.asterisks] ?? "";
+    return <span className="badge badge--asterisk" title={label} aria-label={label}>{text}</span>;
   };
 
   return (
@@ -290,9 +309,9 @@ export default function WatchItem({ item, state, dispatch }: Props) {
       </div>
 
       {error && (
-        <div className="error-panel">
+        <div className="error-panel" role="alert">
           <div className="error-panel__message">
-            <strong>Error loading episodes:</strong> {error}
+            <strong>Error:</strong> {error}
           </div>
           <button className="button button--ghost error-panel__retry" onClick={() => { setError(null); handleExpand(); }}>
             Try Again
