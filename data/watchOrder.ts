@@ -59,6 +59,7 @@ export const watchOrder: WatchItem[] = [
   { id: slug("Star Wars Tales of the Jedi 2022"), title: "Star Wars: Tales of the Jedi", year: 2022, type: "series", asterisks: 1 },
   { id: slug("Star Wars Revenge of the Sith 2005"), title: "Star Wars: Revenge of the Sith (Episode III)", year: 2005, type: "movie" },
   { id: slug("Star Wars Tales of the Empire 2024"), title: "Star Wars: Tales of the Empire", year: 2024, type: "series", asterisks: 1 },
+  { id: slug("Star Wars Maul Shadow Lord 2026"), title: "Star Wars: Maul - Shadow Lord", year: 2026, type: "series" },
   { id: slug("Star Wars Tales of the Underworld 2025"), title: "Star Wars: Tales of the Underworld", year: 2025, type: "series", asterisks: 1 },
   { id: slug("Star Wars The Bad Batch 2021"), title: "Star Wars: The Bad Batch", year: 2021, type: "series" },
   { id: slug("Solo A Star Wars Story 2018"), title: "Solo: A Star Wars Story", year: 2018, type: "movie" },

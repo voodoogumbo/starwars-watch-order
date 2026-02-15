@@ -1,149 +1,78 @@
 "use client";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { WatchItem as WatchItemType } from "@/data/watchOrder";
 import ProgressBar from "./ProgressBar";
-import { loadState, resetState, setKey, toggleKey, StorageState } from "@/lib/storage";
+import {
+  emptyState,
+  exportState,
+  importState,
+  loadState,
+  persistingReducer,
+  StorageAction,
+  StorageState,
+} from "@/lib/storage";
 import WatchItem from "./WatchItem";
 import ErrorBoundary from "./ErrorBoundary";
-import { calculateWatchedSeriesRuntime } from "@/lib/runtime";
 
 export default function WatchList({ items }: { items: WatchItemType[] }) {
   const [query, setQuery] = useState("");
   const [showRemaining, setShowRemaining] = useState(false);
-  const [state, setState] = useState<StorageState>({});
-  const [ignoreMotion, setIgnoreMotion] = useState(false);
+  const [state, dispatch] = useReducer(persistingReducer, emptyState());
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setState(loadState());
+    dispatch({ type: "HYDRATE", state: loadState() });
   }, []);
 
-  // Handler wrappers to update local state + storage helpers
-  const onToggle = (key: string) => {
-    const next = toggleKey(state, key);
-    setState(next);
-  };
-  const onSet = (key: string, checked: boolean) => {
-    const next = setKey(state, key, checked);
-    setState(next);
-  };
-  const onReset = () => {
-    resetState();
-    setState({});
-  };
-
-  // Compute title-based progress:
-  // For movies: 1 or 0. For series: fraction determined by number of episodes checked vs total episodes (we store per-episode keys).
-  // To compute, we need metadata from items + rough denominator. For series with no episode data known yet, treat as 0 until expanded/resolved.
-  // We'll compute an approximate percent using local keys: series contribution = (checkedEpisodeKeysForThisSeries / totalEpisodeKeysDiscoveredForThisSeries) if discovered, otherwise 0.
-  // This means overall percent will update as series episodes get fetched when the user expands a series.
-
-  // Helper: find keys belonging to a series by pattern `tv:{tmdbId}:S{season}:E{episode}` or by local sentinel `series-unresolved:{slug}` for unresolved.
-  // We'll detect tv keys by prefix "tv:" and movie keys by "movie:"
-
-  const totalTitles = items.length;
-
+  // --- Progress computation (title-based) ---
   const computeProgress = useMemo(() => {
     let sumContrib = 0;
-    let countedTitles = 0;
 
     for (const it of items) {
-      countedTitles += 1;
       if (it.type === "movie") {
-        const key = `movie:${it.id}`;
-        sumContrib += state[key] ? 1 : 0;
+        sumContrib += state.watched[`movie:${it.id}`] ? 1 : 0;
       } else {
-        // For series, check if the top-level series is marked as complete first
-        const seriesKey = `movie:${it.id}`; // Using same pattern as movies for top-level completion
-        
-        if (state[seriesKey]) {
-          // Top-level series is checked = 100% complete
+        const seriesKey = `series:${it.id}`;
+        if (state.watched[seriesKey]) {
           sumContrib += 1;
         } else {
-          // Check episode-level progress
-          const metaKeyPrefix = `series-meta:${it.id}:`;
-          const metaEntry = Object.keys(state).find((k) => k.startsWith(metaKeyPrefix));
-          if (metaEntry) {
-            // meta key format: series-meta:{slug}:{tmdbId}:{total}:{checkedCount}:{totalRuntime}:{timestamp}
-            const parts = metaEntry.split(":");
-            const total = Number(parts[3] ?? 0); // total is at index 3
-            const checked = Number(parts[4] ?? 0); // checked is at index 4
-            if (total > 0) sumContrib += checked / total;
-            else sumContrib += 0;
-          } else {
-            // No episode data loaded yet
-            sumContrib += 0;
+          const meta = state.seriesMeta[it.id];
+          if (meta && meta.totalEpisodes > 0) {
+            sumContrib += meta.checkedEpisodes / meta.totalEpisodes;
           }
         }
       }
     }
 
-    const percent = (sumContrib / countedTitles) * 100;
+    const percent = (sumContrib / items.length) * 100;
     return Math.round(percent * 100) / 100;
   }, [state, items]);
 
-  // Compute runtime-based progress
+  // --- Runtime-based progress ---
   const runtimeProgress = useMemo(() => {
     let totalMinutes = 0;
     let watchedMinutes = 0;
 
     for (const item of items) {
       if (item.type === "movie") {
-        const movieKey = `movie:${item.id}`;
-        
-        // Try to get movie runtime from resolve metadata
-        const resolveMetaKey = Object.keys(state).find(k => 
-          k.startsWith(`movie-meta:${item.id}:`)
-        );
-        
-        let movieRuntime = 0;
-        if (resolveMetaKey) {
-          // Parse runtime from metadata key: movie-meta:{id}:{tmdbId}:{runtime}:{rating}:{timestamp}
-          const parts = resolveMetaKey.split(":");
-          movieRuntime = Number(parts[3]) || 0;
-        }
-        
+        const meta = state.movieMeta[item.id];
+        const movieRuntime = meta?.runtime ?? 0;
         totalMinutes += movieRuntime;
-        if (state[movieKey] && movieRuntime > 0) {
+        if (state.watched[`movie:${item.id}`] && movieRuntime > 0) {
           watchedMinutes += movieRuntime;
         }
       } else {
-        // For series, check metadata for runtime info
-        const metaKeyPrefix = `series-meta:${item.id}:`;
-        const metaEntry = Object.keys(state).find((k) => k.startsWith(metaKeyPrefix));
-        
-        if (metaEntry) {
-          // Parse metadata with backwards compatibility
-          const parts = metaEntry.split(":");
-          const tmdbId = Number(parts[2]);
-          
-          let seriesRuntime = 0;
-          if (parts.length >= 7) {
-            // New format: series-meta:{slug}:{tmdbId}:{totalEpisodes}:{checkedCount}:{totalRuntime}:{timestamp}
-            const runtime = Number(parts[5]);
-            // Validate runtime is reasonable (< 100,000 minutes ≈ 1,667 hours per series)
-            if (runtime > 0 && runtime < 100000) {
-              seriesRuntime = runtime;
-            }
-          }
-          // Old format: series-meta:{slug}:{tmdbId}:{totalEpisodes}:{checkedCount}:{timestamp}
-          // Default to 0 runtime for old format (graceful fallback)
-          
+        const meta = state.seriesMeta[item.id];
+        if (meta) {
+          const seriesRuntime = meta.totalRuntime > 0 && meta.totalRuntime < 100000 ? meta.totalRuntime : 0;
           totalMinutes += seriesRuntime;
-          
-          // Check if entire series is marked complete
-          const seriesKey = `movie:${item.id}`;
-          if (state[seriesKey]) {
+
+          const seriesKey = `series:${item.id}`;
+          if (state.watched[seriesKey]) {
             watchedMinutes += seriesRuntime;
-          } else {
-            // Calculate watched runtime from individual episodes
-            // This would require access to the episode data, which we don't have here
-            // For now, estimate based on episode completion ratio
-            const totalEpisodes = Number(parts[3]) || 0;
-            const checkedEpisodes = Number(parts[4]) || 0;
-            if (totalEpisodes > 0 && seriesRuntime > 0) {
-              const avgEpisodeRuntime = seriesRuntime / totalEpisodes;
-              watchedMinutes += checkedEpisodes * avgEpisodeRuntime;
-            }
+          } else if (meta.totalEpisodes > 0 && seriesRuntime > 0) {
+            const avgEpisodeRuntime = seriesRuntime / meta.totalEpisodes;
+            watchedMinutes += meta.checkedEpisodes * avgEpisodeRuntime;
           }
         }
       }
@@ -151,73 +80,96 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
 
     return {
       totalMinutes: Math.round(totalMinutes),
-      watchedMinutes: Math.round(watchedMinutes)
+      watchedMinutes: Math.round(watchedMinutes),
     };
   }, [state, items]);
 
-  // Quick counts - only count actual watched items, not metadata
+  // --- Quick count ---
   const watchedCount = useMemo(() => {
-    return Object.keys(state).filter(key => {
-      // Only count movie: and tv: keys, not series-meta: keys
-      return key.startsWith('movie:') || key.startsWith('tv:');
-    }).length;
-  }, [state]);
+    return Object.keys(state.watched).filter(
+      (key) => key.startsWith("movie:") || key.startsWith("tv:") || key.startsWith("series:")
+    ).length;
+  }, [state.watched]);
 
-  // Filtered items by search / remaining
+  // --- Filter ---
   const filtered = items.filter((it) => {
     if (query.trim()) {
-      const q = query.toLowerCase();
-      if (!it.title.toLowerCase().includes(q)) return false;
+      if (!it.title.toLowerCase().includes(query.toLowerCase())) return false;
     }
     if (showRemaining) {
-      // remaining means at top-level not fully watched: movie unchecked or series not fully completed
       if (it.type === "movie") {
-        const key = `movie:${it.id}`;
-        if (state[key]) return false;
-        return true;
+        return !state.watched[`movie:${it.id}`];
       } else {
-        // For series, check if top-level is complete first
-        const seriesKey = `movie:${it.id}`;
-        if (state[seriesKey]) {
-          return false; // Top-level complete, not remaining
-        }
-        
-        // Check episode-level completion
-        const metaKeyPrefix = `series-meta:${it.id}:`;
-        const metaEntry = Object.keys(state).find((k) => k.startsWith(metaKeyPrefix));
-        if (metaEntry) {
-          const parts = metaEntry.split(":");
-          const total = Number(parts[3] ?? 0); // total is at index 3
-          const checked = Number(parts[4] ?? 0); // checked is at index 4
-          return checked < total;
-        }
-        // fallback: if no meta, show it as remaining
+        if (state.watched[`series:${it.id}`]) return false;
+        const meta = state.seriesMeta[it.id];
+        if (meta) return meta.checkedEpisodes < meta.totalEpisodes;
         return true;
       }
     }
     return true;
   });
 
+  // --- Reset with confirmation ---
+  const handleReset = useCallback(() => {
+    if (window.confirm("Reset all progress? This cannot be undone.")) {
+      dispatch({ type: "RESET" });
+    }
+  }, []);
+
+  // --- Export ---
+  const handleExport = useCallback(() => {
+    const json = exportState();
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "star-wars-watch-order.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  // --- Import ---
+  const handleImport = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const imported = importState(reader.result as string);
+        dispatch({ type: "HYDRATE", state: imported });
+      } catch (err) {
+        alert(`Import failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    };
+    reader.readAsText(file);
+    // Reset so the same file can be re-selected
+    e.target.value = "";
+  }, []);
+
   return (
-    <div className="card" style={{ padding: 14, display: "grid", gap: 12 }} role="main" aria-label="Star Wars watch order tracker">
+    <div className="card main-card" role="main" aria-label="Star Wars watch order tracker">
       <header style={{ display: "grid", gap: 8 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+        <div className="header-row">
           <div style={{ flex: 1 }}>
             <h2 style={{ margin: 0 }}>Your Watch Order</h2>
-            <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 4 }} aria-live="polite">
-              {watchedCount} items checked · {totalTitles} top-level titles
+            <div className="header-stats" aria-live="polite">
+              {watchedCount} items checked · {items.length} top-level titles
             </div>
           </div>
-          <div style={{ width: 360, maxWidth: "50%" }} role="img" aria-label={`Progress: ${computeProgress}% complete`}>
-            <ProgressBar 
-              percent={computeProgress} 
+          <div className="header-progress" role="img" aria-label={`Progress: ${computeProgress}% complete`}>
+            <ProgressBar
+              percent={computeProgress}
               watchedMinutes={runtimeProgress.watchedMinutes}
               totalMinutes={runtimeProgress.totalMinutes}
             />
           </div>
         </div>
 
-        <nav className="controls" style={{ marginTop: 6 }} aria-label="Watch order controls">
+        <nav className="controls controls-bar" aria-label="Watch order controls">
           <input
             className="input"
             placeholder="Search titles..."
@@ -230,13 +182,26 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
             className="button button--ghost"
             onClick={() => setShowRemaining((s) => !s)}
             aria-pressed={showRemaining}
-            aria-label={`Show ${showRemaining ? 'all items' : 'only remaining items'}`}
+            aria-label={`Show ${showRemaining ? "all items" : "only remaining items"}`}
           >
             {showRemaining ? "Show All" : "Show Remaining"}
           </button>
+          <button className="button button--ghost" onClick={handleExport} aria-label="Export progress as JSON">
+            Export
+          </button>
+          <button className="button button--ghost" onClick={handleImport} aria-label="Import progress from JSON file">
+            Import
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            style={{ display: "none" }}
+            onChange={handleFileChange}
+          />
           <button
             className="button button--danger"
-            onClick={onReset}
+            onClick={handleReset}
             aria-label="Reset all progress and clear all checkboxes"
           >
             Reset
@@ -244,22 +209,19 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
         </nav>
       </header>
 
-      <ul className="list" style={{ marginTop: 6, listStyle: "none", padding: 0, margin: 0 }} role="list" aria-label={`${filtered.length} ${showRemaining ? 'remaining' : ''} Star Wars titles`}>
+      <ul
+        className="list main-list"
+        role="list"
+        aria-label={`${filtered.length} ${showRemaining ? "remaining" : ""} Star Wars titles`}
+      >
         {filtered.map((it) => (
           <li key={it.id} role="listitem">
             <ErrorBoundary>
-              <WatchItem
-                item={it}
-                storageState={state}
-                onToggleKey={onToggle}
-                onSetKey={onSet}
-                onSaveState={(s) => setState(s)}
-              />
+              <WatchItem item={it} state={state} dispatch={dispatch} />
             </ErrorBoundary>
           </li>
         ))}
       </ul>
-
     </div>
   );
 }
