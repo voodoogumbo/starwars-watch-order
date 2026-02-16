@@ -11,6 +11,8 @@ type Props = {
   item: WatchItemType;
   state: StorageState;
   dispatch: React.Dispatch<StorageAction>;
+  isNextUp?: boolean;
+  onUndoToast?: (message: string) => void;
 };
 
 function friendlyError(raw: string): string {
@@ -24,7 +26,7 @@ function friendlyError(raw: string): string {
   return raw;
 }
 
-export default function WatchItem({ item, state, dispatch }: Props) {
+export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [tvData, setTvData] = useState<TVSeriesData | null>(null);
@@ -110,9 +112,11 @@ export default function WatchItem({ item, state, dispatch }: Props) {
   const toggleWatched = async () => {
     if (isMovie) {
       if (!movieMeta && !resolving) await fetchMovieData();
+      onUndoToast?.(isChecked ? `Unmarked "${item.title}"` : `Marked "${item.title}" as watched`);
       dispatch({ type: "TOGGLE_WATCHED", key: watchedKey });
     } else {
       const wasChecked = isChecked;
+      onUndoToast?.(wasChecked ? `Unmarked "${item.title}"` : `Marked "${item.title}" as complete`);
       dispatch({ type: "TOGGLE_WATCHED", key: watchedKey });
       if (tvData && resolvedTmdbId) {
         const episodeKeys: string[] = [];
@@ -275,7 +279,8 @@ export default function WatchItem({ item, state, dispatch }: Props) {
   };
 
   return (
-    <div className="list-item card list-item-card">
+    <div className={`list-item card list-item-card${isNextUp ? " list-item--next-up" : ""}`}>
+      {isNextUp && <span className="next-up-badge" aria-label="Next up to watch">NEXT UP</span>}
       {/* Poster + checkbox column */}
       <div className="watch-item-row">
         <button
@@ -322,6 +327,20 @@ export default function WatchItem({ item, state, dispatch }: Props) {
             )}
             {!isMovie && isDataStale && <span className="meta-text--inline meta-text--warning">⚠️ Data may be outdated</span>}
           </div>
+          {/* Series progress preview (collapsed state) */}
+          {!isMovie && !isChecked && seriesMeta && seriesMeta.totalEpisodes > 0 && (
+            <div className="series-preview">
+              <div className="series-preview__bar">
+                <div
+                  className="series-preview__fill"
+                  style={{ width: `${Math.round((seriesMeta.checkedEpisodes / seriesMeta.totalEpisodes) * 100)}%` }}
+                />
+              </div>
+              <span className="series-preview__label">
+                {seriesMeta.checkedEpisodes}/{seriesMeta.totalEpisodes} episodes
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

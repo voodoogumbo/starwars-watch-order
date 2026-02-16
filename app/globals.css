@@ -629,6 +629,27 @@ button { font: inherit; color: inherit; }
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
   z-index: 1000;
   animation: toast-in 0.25s ease;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 48px);
+}
+
+.toast__undo {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.toast__undo:hover {
+  background: rgba(0, 229, 255, 0.12);
 }
 
 @keyframes toast-in {
@@ -724,6 +745,37 @@ button { font: inherit; color: inherit; }
   cursor: help;
 }
 
+/* Series progress preview (collapsed) */
+.series-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.series-preview__bar {
+  width: 80px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.series-preview__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--success));
+  transition: width 0.3s ease;
+}
+
+.series-preview__label {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* Poster thumbnail */
 .watch-item-poster {
   width: 66px;
@@ -749,6 +801,7 @@ button { font: inherit; color: inherit; }
 
 .episodes-collapsible > .episodes {
   overflow: hidden;
+  min-height: 0;
 }
 
 /* Season header with progress */
@@ -789,8 +842,89 @@ button { font: inherit; color: inherit; }
   font-variant-numeric: tabular-nums;
 }
 
+/* Next Up indicator */
+.list-item--next-up {
+  position: relative;
+  border-left: 3px solid var(--accent);
+  background: linear-gradient(
+    90deg,
+    rgba(0, 229, 255, 0.06) 0%,
+    transparent 40%
+  );
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.02),
+    0 8px 30px rgba(0,0,0,0.35),
+    -4px 0 12px rgba(0, 229, 255, 0.15);
+  animation: next-up-pulse 3s ease-in-out infinite;
+}
+
+.next-up-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  background: rgba(0, 229, 255, 0.1);
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  padding: 3px 8px;
+  border-radius: 999px;
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
+  pointer-events: none;
+}
+
+@keyframes next-up-pulse {
+  0%, 100% {
+    border-left-color: var(--accent);
+    box-shadow: -4px 0 12px rgba(0, 229, 255, 0.15);
+  }
+  50% {
+    border-left-color: color-mix(in oklab, var(--accent), white 20%);
+    box-shadow: -4px 0 16px rgba(0, 229, 255, 0.25);
+  }
+}
+
+/* Stats bar */
+.stats-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 16px;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+
+.stat {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.stat strong {
+  color: var(--text);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat--accent strong {
+  color: var(--accent);
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+}
+
+@media (max-width: 640px) {
+  .stats-bar {
+    gap: 6px 16px;
+    padding: 8px 12px;
+  }
+}
+
 /* Accessibility */
 @media (prefers-reduced-motion: reduce) {
   .stars, .lightsaber__beam { animation: none !important; transition: none !important; }
   .toast { animation: none !important; }
+  .list-item--next-up { animation: none; }
 }

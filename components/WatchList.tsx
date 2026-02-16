@@ -8,23 +8,32 @@ import {
   importState,
   loadState,
   persistingReducer,
+  saveState,
   StorageAction,
   StorageState,
 } from "@/lib/storage";
 import WatchItem from "./WatchItem";
 import ErrorBoundary from "./ErrorBoundary";
+import { formatRuntime } from "@/lib/runtime";
 
 const WELCOME_DISMISSED_KEY = "sw-welcome-dismissed";
+
+type ToastData = {
+  message: string;
+  undoState?: StorageState;
+};
 
 export default function WatchList({ items }: { items: WatchItemType[] }) {
   const [query, setQuery] = useState("");
   const [showRemaining, setShowRemaining] = useState(false);
   const [state, dispatch] = useReducer(persistingReducer, emptyState());
   const [showWelcome, setShowWelcome] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastData | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const moreRef = useRef<HTMLDivElement>(null);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   useEffect(() => {
     dispatch({ type: "HYDRATE", state: loadState() });
@@ -46,11 +55,29 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [moreOpen]);
 
-  // Auto-dismiss toast
+  // Auto-dismiss toast (longer for undo toasts)
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 3000);
+    const delay = toast.undoState ? 5000 : 3000;
+    const t = setTimeout(() => setToast(null), delay);
     return () => clearTimeout(t);
+  }, [toast]);
+
+  // Show an undo-able toast — snapshots current state before the action
+  const showUndoToast = useCallback((message: string) => {
+    setToast({ message, undoState: stateRef.current });
+  }, []);
+
+  const showSimpleToast = useCallback((message: string) => {
+    setToast({ message });
+  }, []);
+
+  const handleUndo = useCallback(() => {
+    if (toast?.undoState) {
+      dispatch({ type: "HYDRATE", state: toast.undoState });
+      saveState(toast.undoState);
+      setToast({ message: "Undone" });
+    }
   }, [toast]);
 
   const dismissWelcome = useCallback(() => {
@@ -125,6 +152,29 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
     }).length;
   }, [state, items]);
 
+  // --- Next Up: first unwatched/incomplete item ---
+  const nextUpId = useMemo(() => {
+    for (const it of items) {
+      if (it.type === "movie") {
+        if (!state.watched[`movie:${it.id}`]) return it.id;
+      } else {
+        if (state.watched[`series:${it.id}`]) continue;
+        const meta = state.seriesMeta[it.id];
+        if (meta && meta.checkedEpisodes >= meta.totalEpisodes && meta.totalEpisodes > 0) continue;
+        return it.id;
+      }
+    }
+    return null;
+  }, [items, state]);
+
+  // --- Stats data ---
+  const statsData = useMemo(() => {
+    const movieCount = items.filter(i => i.type === "movie").length;
+    const seriesCount = items.filter(i => i.type === "series").length;
+    const remainingMinutes = runtimeProgress.totalMinutes - runtimeProgress.watchedMinutes;
+    return { movieCount, seriesCount, remainingMinutes };
+  }, [items, runtimeProgress]);
+
   // --- Filter ---
   const filtered = items.filter((it) => {
     if (query.trim()) {
@@ -145,9 +195,9 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
     if (window.confirm("Reset all progress? This cannot be undone.")) {
       dispatch({ type: "RESET" });
       setMoreOpen(false);
-      setToast("Progress reset");
+      showSimpleToast("Progress reset");
     }
-  }, []);
+  }, [showSimpleToast]);
 
   // --- Export ---
   const handleExport = useCallback(() => {
@@ -160,8 +210,8 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
     a.click();
     URL.revokeObjectURL(url);
     setMoreOpen(false);
-    setToast("Progress exported");
-  }, []);
+    showSimpleToast("Progress exported");
+  }, [showSimpleToast]);
 
   // --- Import ---
   const handleImport = useCallback(() => {
@@ -177,14 +227,166 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
       try {
         const imported = importState(reader.result as string);
         dispatch({ type: "HYDRATE", state: imported });
-        setToast("Progress imported successfully");
+        showSimpleToast("Progress imported successfully");
       } catch (err) {
-        setToast(`Import failed: ${err instanceof Error ? err.message : String(err)}`);
+        showSimpleToast(`Import failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     };
     reader.readAsText(file);
     e.target.value = "";
-  }, []);
+  }, [showSimpleToast]);
+
+  // --- Share progress as image ---
+  const handleShare = useCallback(() => {
+    setMoreOpen(false);
+    const pct = computeProgress;
+    const watched = runtimeProgress.watchedMinutes;
+    const total = runtimeProgress.totalMinutes;
+
+    const W = 1200, H = 630;
+    const canvas = document.createElement("canvas");
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext("2d")!;
+
+    // Background
+    const bg = ctx.createRadialGradient(W / 2, 0, 100, W / 2, H / 2, 700);
+    bg.addColorStop(0, "#0a0d17");
+    bg.addColorStop(0.6, "#05060a");
+    bg.addColorStop(1, "#020307");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // Starfield dots
+    const rng = (seed: number) => {
+      let s = seed;
+      return () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+    };
+    const rand = rng(42);
+    for (let i = 0; i < 120; i++) {
+      const x = rand() * W, y = rand() * H;
+      const r = rand() * 1.5 + 0.3;
+      const alpha = rand() * 0.5 + 0.2;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      ctx.fill();
+    }
+
+    // Title
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#e6f1ff";
+    ctx.font = "bold 42px system-ui, -apple-system, sans-serif";
+    ctx.shadowColor = "rgba(0,229,255,0.5)";
+    ctx.shadowBlur = 16;
+    ctx.fillText("STAR WARS — WATCH ORDER", W / 2, 80);
+    ctx.shadowBlur = 0;
+
+    // Percentage
+    ctx.font = "bold 96px system-ui, -apple-system, sans-serif";
+    ctx.fillStyle = "#00e5ff";
+    ctx.shadowColor = "rgba(0,229,255,0.6)";
+    ctx.shadowBlur = 24;
+    ctx.fillText(`${Math.round(pct)}%`, W / 2, 200);
+    ctx.shadowBlur = 0;
+
+    ctx.font = "18px system-ui, -apple-system, sans-serif";
+    ctx.fillStyle = "#a7b3c2";
+    ctx.fillText("COMPLETE", W / 2, 230);
+
+    // Progress bar
+    const barX = 120, barY = 260, barW = W - 240, barH = 20, barR = 10;
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, barW, barH, barR);
+    ctx.fillStyle = "#0f1423";
+    ctx.strokeStyle = "#1e2a3a";
+    ctx.lineWidth = 1;
+    ctx.fill();
+    ctx.stroke();
+
+    if (pct > 0) {
+      const fillW = Math.max(barH, (pct / 100) * barW);
+      const beam = ctx.createLinearGradient(barX, 0, barX + fillW, 0);
+      beam.addColorStop(0, "rgba(0,229,255,0.3)");
+      beam.addColorStop(0.5, "rgba(0,229,255,0.7)");
+      beam.addColorStop(1, "rgba(255,230,0,0.8)");
+      ctx.beginPath();
+      ctx.roundRect(barX, barY, fillW, barH, barR);
+      ctx.fillStyle = beam;
+      ctx.fill();
+      ctx.shadowColor = "rgba(0,229,255,0.6)";
+      ctx.shadowBlur = 12;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // Runtime stats
+    ctx.textAlign = "center";
+    ctx.font = "20px system-ui, -apple-system, sans-serif";
+    ctx.fillStyle = "#a7b3c2";
+    const watchedText = formatRuntime(watched) || "0m";
+    const totalText = formatRuntime(total) || "0m";
+    ctx.fillText(`${watchedText} watched / ${totalText} total`, W / 2, 315);
+
+    // Title list
+    const completedItems: string[] = [];
+    const incompleteItems: string[] = [];
+    for (const it of items) {
+      const done = it.type === "movie"
+        ? !!state.watched[`movie:${it.id}`]
+        : !!state.watched[`series:${it.id}`];
+      if (done) completedItems.push(it.title);
+      else incompleteItems.push(it.title);
+    }
+
+    ctx.textAlign = "left";
+    ctx.font = "16px system-ui, -apple-system, sans-serif";
+    const listY = 360;
+    const maxShow = 8;
+    const allShow = [...completedItems.slice(0, maxShow)];
+    const remaining = completedItems.length - allShow.length;
+
+    allShow.forEach((title, i) => {
+      const y = listY + i * 28;
+      ctx.fillStyle = "#41ff7a";
+      ctx.fillText("\u2713", 140, y);
+      ctx.fillStyle = "#e6f1ff";
+      ctx.fillText(title, 165, y);
+    });
+
+    if (remaining > 0) {
+      const y = listY + allShow.length * 28;
+      ctx.fillStyle = "#a7b3c2";
+      ctx.fillText(`...and ${remaining} more completed`, 165, y);
+    } else if (allShow.length < maxShow && incompleteItems.length > 0) {
+      const spotsLeft = maxShow - allShow.length;
+      const nextFew = incompleteItems.slice(0, Math.min(spotsLeft, 3));
+      nextFew.forEach((title, i) => {
+        const y = listY + (allShow.length + i) * 28;
+        ctx.fillStyle = "#1e2a3a";
+        ctx.fillText("\u25CB", 140, y);
+        ctx.fillStyle = "#6b7a8d";
+        ctx.fillText(title, 165, y);
+      });
+    }
+
+    // Watermark
+    ctx.textAlign = "center";
+    ctx.font = "14px system-ui, -apple-system, sans-serif";
+    ctx.fillStyle = "#4a5568";
+    ctx.fillText("Star Wars Watch Order Tracker", W / 2, H - 30);
+
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "star-wars-progress.png";
+      a.click();
+      URL.revokeObjectURL(url);
+      showSimpleToast("Progress image saved");
+    }, "image/png");
+  }, [computeProgress, runtimeProgress, items, state, showSimpleToast]);
 
   return (
     <div className="card main-card" role="main" aria-label="Star Wars watch order tracker">
@@ -205,17 +407,30 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
       {/* Toast notification */}
       {toast && (
         <div className="toast" role="status" aria-live="polite">
-          {toast}
+          <span>{toast.message}</span>
+          {toast.undoState && (
+            <button className="toast__undo" onClick={handleUndo}>
+              Undo
+            </button>
+          )}
         </div>
       )}
 
       <header style={{ display: "grid", gap: 8 }}>
+        <div className="stats-bar" aria-label="Watch progress statistics">
+          <span className="stat">
+            <strong>{items.length}</strong> titles ({statsData.movieCount} movies · {statsData.seriesCount} series)
+          </span>
+          <span className="stat stat--accent">
+            <strong>{formatRuntime(statsData.remainingMinutes)}</strong> remaining
+          </span>
+          <span className="stat">
+            <strong>{watchedCount}</strong> of {items.length} checked
+          </span>
+        </div>
         <div className="header-row">
           <div style={{ flex: 1 }}>
             <h2 style={{ margin: 0 }}>Your Watch Order</h2>
-            <div className="header-stats" aria-live="polite">
-              {watchedCount} items checked · {items.length} top-level titles
-            </div>
           </div>
           <div className="header-progress" role="img" aria-label={`Progress: ${computeProgress}% complete`}>
             <ProgressBar
@@ -257,6 +472,9 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
             </button>
             {moreOpen && (
               <div className="more-menu__dropdown" role="menu">
+                <button className="more-menu__item" role="menuitem" onClick={handleShare}>
+                  Share Progress
+                </button>
                 <button className="more-menu__item" role="menuitem" onClick={handleExport}>
                   Export Progress
                 </button>
@@ -314,7 +532,7 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
           filtered.map((it) => (
             <li key={it.id} role="listitem">
               <ErrorBoundary>
-                <WatchItem item={it} state={state} dispatch={dispatch} />
+                <WatchItem item={it} state={state} dispatch={dispatch} isNextUp={it.id === nextUpId} onUndoToast={showUndoToast} />
               </ErrorBoundary>
             </li>
           ))
