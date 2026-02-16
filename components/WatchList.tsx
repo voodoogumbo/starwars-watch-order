@@ -107,27 +107,27 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
   }, [state, items]);
 
   // --- Runtime-based progress ---
+  // Uses TMDB data when available, falls back to estimated runtimes from watchOrder
   const runtimeProgress = useMemo(() => {
     let totalMinutes = 0;
     let watchedMinutes = 0;
     for (const item of items) {
       if (item.type === "movie") {
         const meta = state.movieMeta[item.id];
-        const movieRuntime = meta?.runtime ?? 0;
+        const movieRuntime = meta?.runtime ?? item.runtime ?? 0;
         totalMinutes += movieRuntime;
         if (state.watched[`movie:${item.id}`] && movieRuntime > 0) {
           watchedMinutes += movieRuntime;
         }
       } else {
         const meta = state.seriesMeta[item.id];
-        if (meta) {
-          const seriesRuntime = meta.totalRuntime > 0 && meta.totalRuntime < 100000 ? meta.totalRuntime : 0;
-          totalMinutes += seriesRuntime;
-          if (state.watched[`series:${item.id}`]) {
-            watchedMinutes += seriesRuntime;
-          } else if (meta.totalEpisodes > 0 && seriesRuntime > 0) {
-            watchedMinutes += (meta.checkedEpisodes * seriesRuntime) / meta.totalEpisodes;
-          }
+        const tmdbRuntime = meta && meta.totalRuntime > 0 && meta.totalRuntime < 100000 ? meta.totalRuntime : 0;
+        const seriesRuntime = tmdbRuntime || item.runtime || 0;
+        totalMinutes += seriesRuntime;
+        if (state.watched[`series:${item.id}`]) {
+          watchedMinutes += seriesRuntime;
+        } else if (meta && meta.totalEpisodes > 0 && seriesRuntime > 0) {
+          watchedMinutes += (meta.checkedEpisodes * seriesRuntime) / meta.totalEpisodes;
         }
       }
     }

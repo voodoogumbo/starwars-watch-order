@@ -389,6 +389,7 @@ export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast
 
       {/* Episode list with smooth expand */}
       <div className={`episodes-collapsible ${!isMovie && expanded && tvData ? "episodes-collapsible--open" : ""}`}>
+        <div className="episodes-collapsible__inner">
         {!isMovie && tvData && (
           <div className="episodes episodes-panel">
             <div className="episode-actions">
@@ -444,6 +445,7 @@ export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast
             })}
           </div>
         )}
+        </div>
       </div>
     </div>
   );

@@ -799,7 +799,7 @@ button { font: inherit; color: inherit; }
   grid-template-rows: 1fr;
 }
 
-.episodes-collapsible > .episodes {
+.episodes-collapsible__inner {
   overflow: hidden;
   min-height: 0;
 }
