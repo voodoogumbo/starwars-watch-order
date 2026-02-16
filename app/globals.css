@@ -586,6 +586,7 @@ button { font: inherit; color: inherit; }
 
 .list-item-card {
   padding: 10px;
+  position: relative;
 }
 
 /* Welcome banner */
@@ -856,6 +857,22 @@ button { font: inherit; color: inherit; }
     0 8px 30px rgba(0,0,0,0.35),
     -4px 0 12px rgba(0, 229, 255, 0.15);
   animation: next-up-pulse 3s ease-in-out infinite;
+}
+
+.complete-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--success);
+  background: rgba(65, 255, 122, 0.1);
+  border: 1px solid rgba(65, 255, 122, 0.3);
+  padding: 3px 8px;
+  border-radius: 999px;
+  text-shadow: 0 0 8px rgba(65, 255, 122, 0.5);
+  pointer-events: none;
 }
 
 .next-up-badge {
