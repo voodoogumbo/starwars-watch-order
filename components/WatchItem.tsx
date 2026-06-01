@@ -39,7 +39,6 @@ export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast
   const movieMeta = state.movieMeta[item.id];
   const seriesMeta = state.seriesMeta[item.id];
   const resolvedTmdbId = isMovie ? movieMeta?.tmdbId ?? null : seriesMeta?.tmdbId ?? null;
-  const lastFetched = isMovie ? movieMeta?.fetchedAt ?? null : seriesMeta?.fetchedAt ?? null;
 
   // Poster URL from meta or tvData
   const posterUrl = useMemo(() => {
@@ -60,10 +59,6 @@ export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast
     return Object.keys(state.watched).filter((k) => k.startsWith(prefix)).length;
   }, [state.watched, resolvedTmdbId]);
 
-  const isDataStale = useMemo(() => {
-    if (!lastFetched) return false;
-    return lastFetched < Date.now() - 30 * 24 * 60 * 60 * 1000;
-  }, [lastFetched]);
 
   // Season-level progress
   const seasonProgress = useMemo(() => {
@@ -315,7 +310,6 @@ export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast
             {!isMovie && !isChecked && tvData && checkedEpisodesCount > 0 && (
               <span className="meta-text--inline meta-text--accent">{Math.round((checkedEpisodesCount / totalEpisodesKnown) * 100)}% watched</span>
             )}
-            {!isMovie && isDataStale && <span className="meta-text--inline meta-text--warning">⚠️ Data may be outdated</span>}
           </div>
           {/* Series progress preview (collapsed state) */}
           {!isMovie && !isChecked && seriesMeta && seriesMeta.totalEpisodes > 0 && (
@@ -353,9 +347,9 @@ export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast
                 onClick={refreshEpisodes}
                 aria-label={`Refresh episode data for ${item.title}`}
                 disabled={resolving}
-                title={isDataStale ? "Data is over 30 days old - refresh recommended" : "Refresh to check for new episodes"}
+                title="Refresh to check for new episodes"
               >
-                🔄 {isDataStale ? "⚠️" : ""} Refresh
+                🔄 Refresh
               </button>
             )}
           </>

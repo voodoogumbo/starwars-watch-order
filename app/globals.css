@@ -452,11 +452,6 @@ button { font: inherit; color: inherit; }
   color: var(--accent);
 }
 
-.meta-text--warning {
-  color: var(--warning);
-  font-size: 11px;
-}
-
 .progress-wrapper {
   display: grid;
   gap: 8px;
