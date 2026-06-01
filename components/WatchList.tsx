@@ -511,6 +511,7 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
         {/* Filter chips */}
         <div className="filter-chips" role="group" aria-label="Filter titles">
           <button
+            type="button"
             className={`chip${typeFilter === "movie" ? " chip--active" : ""}`}
             onClick={() => setTypeFilter((t) => (t === "movie" ? "all" : "movie"))}
             aria-pressed={typeFilter === "movie"}
@@ -518,6 +519,7 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
             Movies only
           </button>
           <button
+            type="button"
             className={`chip${typeFilter === "series" ? " chip--active" : ""}`}
             onClick={() => setTypeFilter((t) => (t === "series" ? "all" : "series"))}
             aria-pressed={typeFilter === "series"}
@@ -525,6 +527,7 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
             Series only
           </button>
           <button
+            type="button"
             className={`chip${liveActionOnly ? " chip--active" : ""}`}
             onClick={() => setLiveActionOnly((s) => !s)}
             aria-pressed={liveActionOnly}
@@ -532,7 +535,7 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
             Live-action only
           </button>
           {filtersActive && (
-            <button className="chip chip--clear" onClick={clearFilters} aria-label="Clear all filters">
+            <button type="button" className="chip chip--clear" onClick={clearFilters} aria-label="Clear all filters">
               Clear ✕
             </button>
           )}

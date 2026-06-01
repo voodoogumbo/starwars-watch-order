@@ -266,8 +266,14 @@ export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast
 
   return (
     <div className={`list-item card list-item-card${isNextUp ? " list-item--next-up" : ""}`}>
-      {isChecked && <span className="complete-badge" aria-label="Completed">COMPLETE</span>}
-      {isNextUp && <span className="next-up-badge" aria-label="Next up to watch">NEXT UP</span>}
+      {/* COMPLETE and NEXT UP share the same corner slot — keep them mutually
+          exclusive explicitly so they can never overlap, regardless of how
+          isChecked / isNextUp are derived upstream. */}
+      {isChecked ? (
+        <span className="complete-badge" aria-label="Completed">COMPLETE</span>
+      ) : isNextUp ? (
+        <span className="next-up-badge" aria-label="Next up to watch">NEXT UP</span>
+      ) : null}
       {/* Poster + checkbox column */}
       <div className="watch-item-row">
         <button

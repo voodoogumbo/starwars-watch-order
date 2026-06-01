@@ -2,11 +2,6 @@
  * Runtime calculation utilities for Star Wars Watch Order app
  */
 
-export interface RuntimeData {
-  totalMinutes: number;
-  watchedMinutes: number;
-}
-
 /**
  * Format runtime in minutes to human-readable string
  * @param minutes - Runtime in minutes
