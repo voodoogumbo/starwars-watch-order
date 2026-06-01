@@ -1,8 +1,6 @@
 import { watchOrder } from "@/data/watchOrder";
 import WatchList from "@/components/WatchList";
 
-export const dynamic = "force-dynamic";
-
 export default function Home() {
   return (
     <main style={{ padding: "clamp(16px, 4vw, 24px)", maxWidth: 1100, margin: "0 auto" }}>

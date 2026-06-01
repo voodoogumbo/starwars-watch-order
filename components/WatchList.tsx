@@ -26,6 +26,9 @@ type ToastData = {
 export default function WatchList({ items }: { items: WatchItemType[] }) {
   const [query, setQuery] = useState("");
   const [showRemaining, setShowRemaining] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<"all" | "movie" | "series">("all");
+  const [liveActionOnly, setLiveActionOnly] = useState(false);
+  const [hideOptional, setHideOptional] = useState(false);
   const [state, dispatch] = useReducer(persistingReducer, emptyState());
   const [showWelcome, setShowWelcome] = useState(false);
   const [toast, setToast] = useState<ToastData | null>(null);
@@ -176,10 +179,22 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
   }, [items, runtimeProgress]);
 
   // --- Filter ---
+  const filtersActive = typeFilter !== "all" || liveActionOnly || hideOptional || showRemaining;
+  const clearFilters = useCallback(() => {
+    setQuery("");
+    setShowRemaining(false);
+    setTypeFilter("all");
+    setLiveActionOnly(false);
+    setHideOptional(false);
+  }, []);
+
   const filtered = items.filter((it) => {
     if (query.trim()) {
       if (!it.title.toLowerCase().includes(query.toLowerCase())) return false;
     }
+    if (typeFilter !== "all" && it.type !== typeFilter) return false;
+    if (liveActionOnly && it.animated) return false;
+    if (hideOptional && it.asterisks) return false;
     if (showRemaining) {
       if (it.type === "movie") return !state.watched[`movie:${it.id}`];
       if (state.watched[`series:${it.id}`]) return false;
@@ -496,6 +511,43 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
           />
         </nav>
 
+        {/* Filter chips */}
+        <div className="filter-chips" role="group" aria-label="Filter titles">
+          <button
+            className={`chip${typeFilter === "movie" ? " chip--active" : ""}`}
+            onClick={() => setTypeFilter((t) => (t === "movie" ? "all" : "movie"))}
+            aria-pressed={typeFilter === "movie"}
+          >
+            Movies only
+          </button>
+          <button
+            className={`chip${typeFilter === "series" ? " chip--active" : ""}`}
+            onClick={() => setTypeFilter((t) => (t === "series" ? "all" : "series"))}
+            aria-pressed={typeFilter === "series"}
+          >
+            Series only
+          </button>
+          <button
+            className={`chip${liveActionOnly ? " chip--active" : ""}`}
+            onClick={() => setLiveActionOnly((s) => !s)}
+            aria-pressed={liveActionOnly}
+          >
+            Live-action only
+          </button>
+          <button
+            className={`chip${hideOptional ? " chip--active" : ""}`}
+            onClick={() => setHideOptional((s) => !s)}
+            aria-pressed={hideOptional}
+          >
+            Hide optional
+          </button>
+          {filtersActive && (
+            <button className="chip chip--clear" onClick={clearFilters} aria-label="Clear all filters">
+              Clear ✕
+            </button>
+          )}
+        </div>
+
         {/* Legend for asterisk badges */}
         <div className="legend" aria-label="Badge legend">
           <span className="legend__item"><span className="badge">*</span> Optional anthology</span>
@@ -515,14 +567,14 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
             <div className="empty-state__text">
               {query.trim()
                 ? `No titles matching "${query}"`
-                : showRemaining
+                : showRemaining && typeFilter === "all" && !liveActionOnly && !hideOptional
                   ? "All caught up — nothing remaining!"
-                  : "No titles to show."}
+                  : "No titles match the current filters."}
             </div>
-            {(query.trim() || showRemaining) && (
+            {(query.trim() || filtersActive) && (
               <button
                 className="button button--ghost"
-                onClick={() => { setQuery(""); setShowRemaining(false); }}
+                onClick={clearFilters}
               >
                 Clear Filters
               </button>

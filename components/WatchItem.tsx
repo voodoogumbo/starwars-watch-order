@@ -216,9 +216,13 @@ export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast
     const wasChecked = !!state.watched[key];
     dispatch({ type: "TOGGLE_WATCHED", key });
 
+    // Derive the post-toggle count from the actual watched set rather than
+    // blind +1/-1 arithmetic, so the meta stays correct even if it had drifted.
     const prefix = `tv:${resolvedTmdbId}:`;
-    const currentChecked = Object.keys(state.watched).filter((k) => k.startsWith(prefix)).length;
-    const newChecked = wasChecked ? currentChecked - 1 : currentChecked + 1;
+    const checkedKeys = new Set(Object.keys(state.watched).filter((k) => k.startsWith(prefix)));
+    if (wasChecked) checkedKeys.delete(key);
+    else checkedKeys.add(key);
+    const newChecked = checkedKeys.size;
     const total = totalEpisodesKnown || 0;
 
     if (newChecked === total && total > 0) {

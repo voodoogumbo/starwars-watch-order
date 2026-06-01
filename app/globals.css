@@ -725,6 +725,50 @@ button { font: inherit; color: inherit; }
   max-width: 320px;
 }
 
+/* Filter chips */
+.filter-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.chip {
+  padding: 6px 12px;
+  min-height: 36px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color .2s ease, color .2s ease, background .2s ease, box-shadow .2s ease;
+}
+
+.chip:hover {
+  color: var(--text);
+  border-color: color-mix(in oklab, var(--accent), transparent 50%);
+}
+
+.chip--active {
+  color: var(--text);
+  border-color: color-mix(in oklab, var(--accent), black 30%);
+  background: color-mix(in oklab, var(--accent), transparent 85%);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent), transparent 70%);
+}
+
+.chip--clear {
+  color: var(--muted);
+  border-style: dashed;
+}
+
+@media (max-width: 768px) {
+  .chip {
+    min-height: 40px;
+    font-size: 14px;
+  }
+}
+
 /* Legend for asterisk badges */
 .legend {
   display: flex;
