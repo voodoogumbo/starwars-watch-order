@@ -269,19 +269,6 @@ export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast
     });
   };
 
-  const asteriskLabels: Record<number, string> = {
-    1: "Optional anthology — can be skipped",
-    2: "Supplementary — enriches the main story",
-    3: "Skippable — not essential viewing",
-  };
-
-  const renderBadges = () => {
-    if (!item.asterisks) return null;
-    const text = "*".repeat(item.asterisks);
-    const label = asteriskLabels[item.asterisks] ?? "";
-    return <span className="badge badge--asterisk" title={label} aria-label={label}>{text}</span>;
-  };
-
   return (
     <div className={`list-item card list-item-card${isNextUp ? " list-item--next-up" : ""}`}>
       {isChecked && <span className="complete-badge" aria-label="Completed">COMPLETE</span>}
@@ -317,7 +304,6 @@ export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast
             <div className="watch-item-title">{item.title}</div>
             <div className="badges">
               <span className="badge">{item.year}</span>
-              {renderBadges()}
             </div>
           </div>
           <div className="meta-text">

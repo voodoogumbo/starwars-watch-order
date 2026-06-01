@@ -28,7 +28,6 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
   const [showRemaining, setShowRemaining] = useState(false);
   const [typeFilter, setTypeFilter] = useState<"all" | "movie" | "series">("all");
   const [liveActionOnly, setLiveActionOnly] = useState(false);
-  const [hideOptional, setHideOptional] = useState(false);
   const [state, dispatch] = useReducer(persistingReducer, emptyState());
   const [showWelcome, setShowWelcome] = useState(false);
   const [toast, setToast] = useState<ToastData | null>(null);
@@ -179,13 +178,12 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
   }, [items, runtimeProgress]);
 
   // --- Filter ---
-  const filtersActive = typeFilter !== "all" || liveActionOnly || hideOptional || showRemaining;
+  const filtersActive = typeFilter !== "all" || liveActionOnly || showRemaining;
   const clearFilters = useCallback(() => {
     setQuery("");
     setShowRemaining(false);
     setTypeFilter("all");
     setLiveActionOnly(false);
-    setHideOptional(false);
   }, []);
 
   const filtered = items.filter((it) => {
@@ -194,7 +192,6 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
     }
     if (typeFilter !== "all" && it.type !== typeFilter) return false;
     if (liveActionOnly && it.animated) return false;
-    if (hideOptional && it.asterisks) return false;
     if (showRemaining) {
       if (it.type === "movie") return !state.watched[`movie:${it.id}`];
       if (state.watched[`series:${it.id}`]) return false;
@@ -534,13 +531,6 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
           >
             Live-action only
           </button>
-          <button
-            className={`chip${hideOptional ? " chip--active" : ""}`}
-            onClick={() => setHideOptional((s) => !s)}
-            aria-pressed={hideOptional}
-          >
-            Hide optional
-          </button>
           {filtersActive && (
             <button className="chip chip--clear" onClick={clearFilters} aria-label="Clear all filters">
               Clear ✕
@@ -548,12 +538,6 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
           )}
         </div>
 
-        {/* Legend for asterisk badges */}
-        <div className="legend" aria-label="Badge legend">
-          <span className="legend__item"><span className="badge">*</span> Optional anthology</span>
-          <span className="legend__item"><span className="badge">**</span> Supplementary</span>
-          <span className="legend__item"><span className="badge">***</span> Skippable</span>
-        </div>
       </header>
 
       <ul
@@ -567,7 +551,7 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
             <div className="empty-state__text">
               {query.trim()
                 ? `No titles matching "${query}"`
-                : showRemaining && typeFilter === "all" && !liveActionOnly && !hideOptional
+                : showRemaining && typeFilter === "all" && !liveActionOnly
                   ? "All caught up — nothing remaining!"
                   : "No titles match the current filters."}
             </div>

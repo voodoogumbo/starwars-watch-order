@@ -769,27 +769,6 @@ button { font: inherit; color: inherit; }
   }
 }
 
-/* Legend for asterisk badges */
-.legend {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: var(--muted);
-  padding-top: 4px;
-}
-
-.legend__item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-/* Asterisk badge with tooltip hint */
-.badge--asterisk {
-  cursor: help;
-}
-
 /* Series progress preview (collapsed) */
 .series-preview {
   display: flex;
