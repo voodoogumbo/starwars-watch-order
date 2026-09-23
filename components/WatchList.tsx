@@ -15,6 +15,7 @@ import {
 import WatchItem from "./WatchItem";
 import ErrorBoundary from "./ErrorBoundary";
 import { formatRuntime } from "@/lib/runtime";
+import { titleProgress, TitleProgress } from "@/lib/progress";
 
 const WELCOME_DISMISSED_KEY = "sw-welcome-dismissed";
 
@@ -32,6 +33,9 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
   const [showWelcome, setShowWelcome] = useState(false);
   const [toast, setToast] = useState<ToastData | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  // Saved progress loads after mount; hide progress-derived UI until then so
+  // first paint doesn't flash 0% / a wrong NEXT UP.
+  const [hydrated, setHydrated] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const moreRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef(state);
@@ -39,10 +43,11 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
 
   useEffect(() => {
     dispatch({ type: "HYDRATE", state: loadState() });
+    setHydrated(true);
     // Show welcome banner if never dismissed
-    if (typeof window !== "undefined" && !localStorage.getItem(WELCOME_DISMISSED_KEY)) {
-      setShowWelcome(true);
-    }
+    try {
+      if (!localStorage.getItem(WELCOME_DISMISSED_KEY)) setShowWelcome(true);
+    } catch {}
   }, []);
 
   // Close "More" menu when clicking outside
@@ -84,90 +89,52 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
 
   const dismissWelcome = useCallback(() => {
     setShowWelcome(false);
-    localStorage.setItem(WELCOME_DISMISSED_KEY, "1");
+    try {
+      localStorage.setItem(WELCOME_DISMISSED_KEY, "1");
+    } catch {}
   }, []);
+
+  // --- Per-title progress (single pass, shared by everything below) ---
+  const progressById = useMemo(() => {
+    const map = new Map<string, TitleProgress>();
+    for (const it of items) map.set(it.id, titleProgress(it, state.watched));
+    return map;
+  }, [items, state.watched]);
+  const progressOf = useCallback((id: string) => progressById.get(id)!, [progressById]);
 
   // --- Progress computation (title-based) ---
   const computeProgress = useMemo(() => {
     let sumContrib = 0;
-    for (const it of items) {
-      if (it.type === "movie") {
-        sumContrib += state.watched[`movie:${it.id}`] ? 1 : 0;
-      } else {
-        if (state.watched[`series:${it.id}`]) {
-          sumContrib += 1;
-        } else {
-          const meta = state.seriesMeta[it.id];
-          if (meta && meta.totalEpisodes > 0) {
-            sumContrib += meta.checkedEpisodes / meta.totalEpisodes;
-          }
-        }
-      }
-    }
+    for (const it of items) sumContrib += progressOf(it.id).fraction;
     const percent = (sumContrib / items.length) * 100;
     return Math.round(percent * 100) / 100;
-  }, [state, items]);
+  }, [items, progressOf]);
 
   // --- Runtime-based progress ---
-  // Uses TMDB data when available, falls back to estimated runtimes from watchOrder
+  // Runtimes come from TMDB server-side, falling back to the estimates in watchOrder
   const runtimeProgress = useMemo(() => {
     let totalMinutes = 0;
     let watchedMinutes = 0;
     for (const item of items) {
-      if (item.type === "movie") {
-        const meta = state.movieMeta[item.id];
-        const movieRuntime = meta?.runtime ?? item.runtime ?? 0;
-        totalMinutes += movieRuntime;
-        if (state.watched[`movie:${item.id}`] && movieRuntime > 0) {
-          watchedMinutes += movieRuntime;
-        }
-      } else {
-        const meta = state.seriesMeta[item.id];
-        const tmdbRuntime = meta && meta.totalRuntime > 0 && meta.totalRuntime < 100000 ? meta.totalRuntime : 0;
-        const seriesRuntime = tmdbRuntime || item.runtime || 0;
-        totalMinutes += seriesRuntime;
-        if (state.watched[`series:${item.id}`]) {
-          watchedMinutes += seriesRuntime;
-        } else if (meta && meta.totalEpisodes > 0 && seriesRuntime > 0) {
-          watchedMinutes += (meta.checkedEpisodes * seriesRuntime) / meta.totalEpisodes;
-        }
-      }
+      const runtime = item.runtime ?? 0;
+      totalMinutes += runtime;
+      watchedMinutes += runtime * progressOf(item.id).fraction;
     }
     return { totalMinutes: Math.round(totalMinutes), watchedMinutes: Math.round(watchedMinutes) };
-  }, [state, items]);
+  }, [items, progressOf]);
 
-  // --- Quick count ---
-  const watchedCount = useMemo(() => {
-    return Object.keys(state.watched).filter(
-      (key) => key.startsWith("movie:") || key.startsWith("tv:") || key.startsWith("series:")
-    ).length;
-  }, [state.watched]);
-
-  // --- Remaining count ---
-  const remainingCount = useMemo(() => {
-    return items.filter((it) => {
-      if (it.type === "movie") return !state.watched[`movie:${it.id}`];
-      if (state.watched[`series:${it.id}`]) return false;
-      const meta = state.seriesMeta[it.id];
-      if (meta) return meta.checkedEpisodes < meta.totalEpisodes;
-      return true;
-    }).length;
-  }, [state, items]);
+  // --- Completed / remaining counts ---
+  const completedCount = useMemo(
+    () => items.filter((it) => progressOf(it.id).done).length,
+    [items, progressOf]
+  );
+  const remainingCount = items.length - completedCount;
 
   // --- Next Up: first unwatched/incomplete item ---
   const nextUpId = useMemo(() => {
-    for (const it of items) {
-      if (it.type === "movie") {
-        if (!state.watched[`movie:${it.id}`]) return it.id;
-      } else {
-        if (state.watched[`series:${it.id}`]) continue;
-        const meta = state.seriesMeta[it.id];
-        if (meta && meta.checkedEpisodes >= meta.totalEpisodes && meta.totalEpisodes > 0) continue;
-        return it.id;
-      }
-    }
-    return null;
-  }, [items, state]);
+    if (!hydrated) return null;
+    return items.find((it) => !progressOf(it.id).done)?.id ?? null;
+  }, [items, progressOf, hydrated]);
 
   // --- Stats data ---
   const statsData = useMemo(() => {
@@ -186,19 +153,12 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
     setLiveActionOnly(false);
   }, []);
 
+  const q = query.trim().toLowerCase();
   const filtered = items.filter((it) => {
-    if (query.trim()) {
-      if (!it.title.toLowerCase().includes(query.toLowerCase())) return false;
-    }
+    if (q && !it.title.toLowerCase().includes(q)) return false;
     if (typeFilter !== "all" && it.type !== typeFilter) return false;
     if (liveActionOnly && it.animated) return false;
-    if (showRemaining) {
-      if (it.type === "movie") return !state.watched[`movie:${it.id}`];
-      if (state.watched[`series:${it.id}`]) return false;
-      const meta = state.seriesMeta[it.id];
-      if (meta) return meta.checkedEpisodes < meta.totalEpisodes;
-      return true;
-    }
+    if (showRemaining && progressOf(it.id).done) return false;
     return true;
   });
 
@@ -344,10 +304,7 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
     const completedItems: string[] = [];
     const incompleteItems: string[] = [];
     for (const it of items) {
-      const done = it.type === "movie"
-        ? !!state.watched[`movie:${it.id}`]
-        : !!state.watched[`series:${it.id}`];
-      if (done) completedItems.push(it.title);
+      if (progressOf(it.id).done) completedItems.push(it.title);
       else incompleteItems.push(it.title);
     }
 
@@ -398,7 +355,7 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
       URL.revokeObjectURL(url);
       showSimpleToast("Progress image saved");
     }, "image/png");
-  }, [computeProgress, runtimeProgress, items, state, showSimpleToast]);
+  }, [computeProgress, runtimeProgress, items, progressOf, showSimpleToast]);
 
   return (
     <div className="card main-card" role="main" aria-label="Star Wars watch order tracker">
@@ -429,7 +386,7 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
       )}
 
       <header style={{ display: "grid", gap: 8 }}>
-        <div className="stats-bar" aria-label="Watch progress statistics">
+        <div className="stats-bar" aria-label="Watch progress statistics" style={{ visibility: hydrated ? "visible" : "hidden" }}>
           <span className="stat">
             <strong>{items.length}</strong> titles ({statsData.movieCount} movies · {statsData.seriesCount} series)
           </span>
@@ -437,14 +394,14 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
             <strong>{formatRuntime(statsData.remainingMinutes)}</strong> remaining
           </span>
           <span className="stat">
-            <strong>{watchedCount}</strong> of {items.length} checked
+            <strong>{completedCount}</strong> of {items.length} complete
           </span>
         </div>
         <div className="header-row">
           <div style={{ flex: 1 }}>
             <h2 style={{ margin: 0 }}>Your Watch Order</h2>
           </div>
-          <div className="header-progress" role="img" aria-label={`Progress: ${computeProgress}% complete`}>
+          <div className="header-progress" role="img" aria-label={`Progress: ${computeProgress}% complete`} style={{ visibility: hydrated ? "visible" : "hidden" }}>
             <ProgressBar
               percent={computeProgress}
               watchedMinutes={runtimeProgress.watchedMinutes}
@@ -552,13 +509,13 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
           <li className="empty-state" role="listitem">
             <div className="empty-state__icon">🔍</div>
             <div className="empty-state__text">
-              {query.trim()
+              {q
                 ? `No titles matching "${query}"`
                 : showRemaining && typeFilter === "all" && !liveActionOnly
                   ? "All caught up — nothing remaining!"
                   : "No titles match the current filters."}
             </div>
-            {(query.trim() || filtersActive) && (
+            {(q || filtersActive) && (
               <button
                 className="button button--ghost"
                 onClick={clearFilters}
@@ -571,7 +528,7 @@ export default function WatchList({ items }: { items: WatchItemType[] }) {
           filtered.map((it) => (
             <li key={it.id} role="listitem">
               <ErrorBoundary>
-                <WatchItem item={it} state={state} dispatch={dispatch} isNextUp={it.id === nextUpId} onUndoToast={showUndoToast} />
+                <WatchItem item={it} watched={state.watched} dispatch={dispatch} isNextUp={it.id === nextUpId} onUndoToast={showUndoToast} />
               </ErrorBoundary>
             </li>
           ))

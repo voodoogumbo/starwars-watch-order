@@ -26,13 +26,16 @@ export function Skeleton({ width = "100%", height = "1rem", borderRadius = "4px"
   );
 }
 
+// Fixed row counts per season — random lengths made the skeleton jump on every re-render
+const SKELETON_ROWS = [10, 7, 12];
+
 export function EpisodeListSkeleton({ seasonCount = 3 }: { seasonCount?: number }) {
   return (
     <div className="episodes" style={{ gridColumn: "1 / -1", marginTop: 10, padding: "8px 12px 12px 46px" }}>
       {Array.from({ length: seasonCount }, (_, seasonIndex) => (
         <div key={seasonIndex} style={{ display: "grid", gap: 6, marginBottom: 16 }}>
           <Skeleton width="120px" height="16px" />
-          {Array.from({ length: Math.floor(Math.random() * 12) + 6 }, (_, episodeIndex) => (
+          {Array.from({ length: SKELETON_ROWS[seasonIndex % SKELETON_ROWS.length] }, (_, episodeIndex) => (
             <div key={episodeIndex} className="episode-item" style={{ padding: "6px 8px", opacity: 0.7 }}>
               <Skeleton width="12px" height="12px" borderRadius="2px" />
               <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

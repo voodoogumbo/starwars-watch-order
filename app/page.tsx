@@ -1,7 +1,12 @@
 import { watchOrder } from "@/data/watchOrder";
+import { withTmdbData } from "@/lib/tmdb";
 import WatchList from "@/components/WatchList";
 
-export default function Home() {
+// Re-render at most once a day to pick up new episodes, ratings and posters.
+export const revalidate = 86400;
+
+export default async function Home() {
+  const items = await withTmdbData(watchOrder);
   return (
     <main style={{ padding: "clamp(16px, 4vw, 24px)", maxWidth: 1100, margin: "0 auto" }}>
       <a href="#watch-list" className="skip-link">
@@ -16,7 +21,7 @@ export default function Home() {
       </header>
 
       <section id="watch-list" style={{ marginTop: 18 }}>
-        <WatchList items={watchOrder} />
+        <WatchList items={items} />
       </section>
     </main>
   );

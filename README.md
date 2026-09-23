@@ -8,7 +8,7 @@ A beautiful, interactive Star Wars watch order tracker with episode-level progre
 
 ## ✨ Features
 
-- 🌌 **Complete Star Wars chronological watch order** - From The Acolyte to Rise of Skywalker
+- 🌌 **Complete Star Wars chronological watch order** - From Young Jedi Adventures to Rise of Skywalker
 - 📺 **Episode-level tracking** - Check off individual episodes of TV series
 - ⚡ **Smart completion** - Check series at top-level or mark all episodes at once
 - 🎯 **Lightsaber progress bar** - Watch your progress grow with a glowing lightsaber effect
@@ -28,7 +28,7 @@ cd starwars-watch-order
 npm install
 ```
 
-### 2. Configure TMDB API (Required for episode lists)
+### 2. Configure TMDB API (Required for episode lists, posters and ratings)
 
 1. **Get a free TMDB account**: [Sign up at TMDB](https://www.themoviedb.org/signup)
 2. **Get your API key**: Go to [API Settings](https://www.themoviedb.org/settings/api)
@@ -44,7 +44,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000/watch-order](http://localhost:3000/watch-order) to start your Star Wars journey! 🚀
+Open [http://localhost:3000](http://localhost:3000) to start your Star Wars journey! 🚀
 
 ## 📖 How to Use
 
@@ -70,13 +70,16 @@ Open [http://localhost:3000/watch-order](http://localhost:3000/watch-order) to s
 
 This tracker includes the complete Star Wars chronological timeline:
 
-**Prequel Era**: The Acolyte → Phantom Menace → Attack of the Clones → Clone Wars → Revenge of the Sith  
-**Imperial Era**: Bad Batch → Solo → Obi-Wan Kenobi → Andor → Rebels → Rogue One  
+**High Republic Era**: Young Jedi Adventures → The Acolyte  
+**Prequel Era**: Phantom Menace → Attack of the Clones → Clone Wars → Revenge of the Sith  
+**Imperial Era**: Bad Batch → Maul: Shadow Lord → Solo → Obi-Wan Kenobi → Andor → Rebels → Rogue One  
 **Original Era**: A New Hope → Empire Strikes Back → Return of the Jedi  
-**New Republic Era**: Mandalorian → Book of Boba Fett → Ahsoka → Skeleton Crew  
+**New Republic Era**: Mandalorian → Book of Boba Fett → Ahsoka → The Mandalorian & Grogu → Skeleton Crew  
 **Sequel Era**: Resistance → Force Awakens → Last Jedi → Rise of Skywalker
 
-*Plus anthology series like Tales of the Jedi and Tales of the Empire positioned chronologically*
+*Plus anthology series like Tales of the Jedi, Tales of the Empire and Tales of the Underworld positioned chronologically*
+
+Each title carries its TMDB id in `data/watchOrder.ts`. Runtimes, ratings, posters and aired-episode lists are fetched server-side and refreshed daily; unaired episodes are excluded until they air.
 
 ## 🚀 Deployment
 
@@ -104,8 +107,9 @@ npm run lint         # ESLint check
 ### Project Structure
 ```
 ├── app/
-│   ├── api/tmdb/           # TMDB API integration
-│   ├── watch-order/        # Main tracker page
+│   ├── api/tmdb/tv/[id]/   # Episode list for a series in the watch order
+│   ├── page.tsx            # Main tracker page (server-rendered, revalidated daily)
+│   ├── watch-order/        # Redirects to /
 │   ├── layout.tsx          # Root layout with starfield
 │   └── globals.css         # Star Wars themed styles
 ├── components/
@@ -117,7 +121,9 @@ npm run lint         # ESLint check
 ├── data/
 │   └── watchOrder.ts       # Complete Star Wars chronology
 └── lib/
-    └── storage.ts          # Local storage utilities
+    ├── progress.ts         # Per-title progress (shared by list + items)
+    ├── storage.ts          # Local storage state, reducer and migrations
+    └── tmdb.ts             # Server-only TMDB client
 ```
 
 ## 🔧 Technologies

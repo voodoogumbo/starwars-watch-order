@@ -1,7 +1,8 @@
 "use client";
 import React, { useMemo, useState } from "react";
 import type { WatchItem as WatchItemType, TVSeriesData } from "@/data/watchOrder";
-import type { StorageAction, StorageState } from "@/lib/storage";
+import type { StorageAction, Watched } from "@/lib/storage";
+import { episodeKey, episodePrefix, titleKey, titleProgress } from "@/lib/progress";
 import { EpisodeListSkeleton } from "./Skeleton";
 import { formatRuntime, formatRating } from "@/lib/runtime";
 
@@ -9,7 +10,7 @@ const TMDB_IMG = "https://image.tmdb.org/t/p/w154";
 
 type Props = {
   item: WatchItemType;
-  state: StorageState;
+  watched: Watched;
   dispatch: React.Dispatch<StorageAction>;
   isNextUp?: boolean;
   onUndoToast?: (message: string) => void;
@@ -22,245 +23,94 @@ function friendlyError(raw: string): string {
     return "TMDB is temporarily unavailable. Try again shortly.";
   if (raw.includes("fetch") || raw.includes("network") || raw.includes("Failed"))
     return "Network error — check your connection and try again.";
-  if (raw.includes("No TMDB id")) return "Could not find this title on TMDB.";
   return raw;
 }
 
-export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast }: Props) {
+export default function WatchItem({ item, watched, dispatch, isNextUp, onUndoToast }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const [resolving, setResolving] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [tvData, setTvData] = useState<TVSeriesData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const isMovie = item.type === "movie";
+  const watchedKey = titleKey(item);
 
-  const watchedKey = isMovie ? `movie:${item.id}` : `series:${item.id}`;
-  const isChecked = !!state.watched[watchedKey];
+  // Prefer a freshly fetched episode list; fall back to the server-rendered one.
+  const episodeKeys = useMemo(() => {
+    if (!tvData) return item.episodes ?? [];
+    return tvData.seasons.flatMap((s) =>
+      s.episodes.map((e) => episodeKey(item.tmdbId, s.season_number, e.episode_number))
+    );
+  }, [tvData, item.episodes, item.tmdbId]);
 
-  const movieMeta = state.movieMeta[item.id];
-  const seriesMeta = state.seriesMeta[item.id];
-  const resolvedTmdbId = isMovie ? movieMeta?.tmdbId ?? null : seriesMeta?.tmdbId ?? null;
+  const progress = titleProgress(item, watched, episodeKeys);
+  const isChecked = progress.done;
 
-  // Poster URL from meta or tvData
-  const posterUrl = useMemo(() => {
-    if (isMovie && movieMeta?.poster) return `${TMDB_IMG}${movieMeta.poster}`;
-    if (!isMovie && seriesMeta?.poster) return `${TMDB_IMG}${seriesMeta.poster}`;
-    if (!isMovie && tvData?.poster_path) return `${TMDB_IMG}${tvData.poster_path}`;
-    return null;
-  }, [isMovie, movieMeta, seriesMeta, tvData]);
+  const posterPath = item.poster ?? tvData?.poster_path;
+  const posterUrl = posterPath ? `${TMDB_IMG}${posterPath}` : null;
+  const runtime = tvData?.runtime ?? item.runtime;
+  const rating = tvData?.rating ?? item.rating;
 
-  const totalEpisodesKnown = useMemo(() => {
-    if (!tvData) return 0;
-    return tvData.seasons.reduce((sum, s) => sum + (s.episodes?.length ?? 0), 0);
-  }, [tvData]);
-
-  const checkedEpisodesCount = useMemo(() => {
-    if (!resolvedTmdbId) return 0;
-    const prefix = `tv:${resolvedTmdbId}:`;
-    return Object.keys(state.watched).filter((k) => k.startsWith(prefix)).length;
-  }, [state.watched, resolvedTmdbId]);
-
-
-  // Season-level progress
-  const seasonProgress = useMemo(() => {
-    if (!tvData || !resolvedTmdbId) return null;
-    return tvData.seasons.map((s) => {
-      const total = s.episodes?.length ?? 0;
-      const checked = s.episodes.filter(
-        (e) => !!state.watched[`tv:${resolvedTmdbId}:S${s.season_number}:E${e.episode_number}`]
-      ).length;
-      return { season: s.season_number, total, checked };
-    });
-  }, [tvData, resolvedTmdbId, state.watched]);
-
-  const fetchMovieData = async () => {
-    if (!isMovie || movieMeta || resolving) return;
-    try {
-      setResolving(true);
-      setError(null);
-      const resp = await fetch(
-        `/api/tmdb/resolve?title=${encodeURIComponent(item.title)}&year=${item.year}&type=movie`
-      );
-      if (!resp.ok) throw new Error(`TMDB resolve failed: ${resp.status} ${resp.statusText}`);
-      const data = await resp.json();
-      if (data.error) throw new Error(data.message || data.error);
-      if (!data?.id) throw new Error("No TMDB id found for this movie");
-      dispatch({
-        type: "UPDATE_MOVIE_META",
-        slug: item.id,
-        meta: {
-          tmdbId: data.id,
-          runtime: data.runtime || 0,
-          rating: data.rating || 0,
-          poster: data.poster_path || undefined,
-          fetchedAt: Date.now(),
-        },
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error("Error fetching movie data:", msg);
-      setError(friendlyError(msg));
-    } finally {
-      setResolving(false);
-    }
-  };
-
-  const toggleWatched = async () => {
+  const toggleWatched = () => {
+    onUndoToast?.(
+      isChecked
+        ? `Unmarked "${item.title}"`
+        : `Marked "${item.title}" as ${isMovie ? "watched" : "complete"}`
+    );
     if (isMovie) {
-      if (!movieMeta && !resolving) await fetchMovieData();
-      onUndoToast?.(isChecked ? `Unmarked "${item.title}"` : `Marked "${item.title}" as watched`);
       dispatch({ type: "TOGGLE_WATCHED", key: watchedKey });
     } else {
-      const wasChecked = isChecked;
-      onUndoToast?.(wasChecked ? `Unmarked "${item.title}"` : `Marked "${item.title}" as complete`);
-      dispatch({ type: "TOGGLE_WATCHED", key: watchedKey });
-      if (tvData && resolvedTmdbId) {
-        const episodeKeys: string[] = [];
-        for (const s of tvData.seasons) {
-          for (const e of s.episodes) {
-            episodeKeys.push(`tv:${resolvedTmdbId}:S${s.season_number}:E${e.episode_number}`);
-          }
-        }
-        dispatch({ type: "BULK_SET_EPISODES", keys: episodeKeys, checked: !wasChecked });
-        dispatch({
-          type: "UPDATE_SERIES_META",
-          slug: item.id,
-          meta: {
-            tmdbId: resolvedTmdbId,
-            totalEpisodes: episodeKeys.length,
-            checkedEpisodes: wasChecked ? 0 : episodeKeys.length,
-            totalRuntime: tvData.runtime || 0,
-            poster: tvData.poster_path || seriesMeta?.poster,
-            fetchedAt: Date.now(),
-          },
-        });
-      }
+      setAllEpisodes(!isChecked);
     }
   };
 
-  const handleExpand = async (forceRefresh = false) => {
-    if (isMovie) return;
-    setExpanded((s) => !s);
-    if ((tvData && !forceRefresh) || resolving) return;
-    if (!item.title?.trim()) { setError("Invalid series title"); return; }
-    if (!item.year || item.year < 1900 || item.year > 2100) { setError("Invalid release year"); return; }
+  // Checking sets every known episode; unchecking clears every stored episode
+  // for this series, so it works even before the episode list has loaded.
+  const setAllEpisodes = (checked: boolean) => {
+    dispatch({
+      type: "SET_SERIES",
+      seriesKey: watchedKey,
+      prefix: episodePrefix(item.tmdbId),
+      episodeKeys,
+      checked,
+    });
+  };
 
+  const loadEpisodes = async () => {
+    if (isMovie || loading) return;
     try {
-      setResolving(true);
+      setLoading(true);
       setError(null);
-      const resolveResp = await fetch(
-        `/api/tmdb/resolve?title=${encodeURIComponent(item.title)}&year=${item.year}&type=series`
-      );
-      if (!resolveResp.ok) throw new Error(`TMDB resolve failed: ${resolveResp.status} ${resolveResp.statusText}`);
-      const resolveData = await resolveResp.json();
-      if (resolveData.error) throw new Error(resolveData.message || resolveData.error);
-      if (!resolveData?.id) throw new Error("No TMDB id found for this series");
-
-      const idToFetch = resolveData.id;
-      const tvResp = await fetch(`/api/tmdb/tv/${idToFetch}`);
-      if (!tvResp.ok) throw new Error(`TMDB tv fetch failed: ${tvResp.status} ${tvResp.statusText}`);
-      const tvjson = await tvResp.json() as TVSeriesData;
+      const resp = await fetch(`/api/tmdb/tv/${item.tmdbId}`);
+      if (!resp.ok) throw new Error(`TMDB tv fetch failed: ${resp.status} ${resp.statusText}`);
+      const tvjson = (await resp.json()) as TVSeriesData;
       if (!tvjson?.seasons) throw new Error("Invalid TV data received from TMDB");
-
       setTvData(tvjson);
-
-      const total = tvjson.seasons.reduce((acc, s) => acc + (s.episodes?.length ?? 0), 0);
-      const prefix = `tv:${idToFetch}:`;
-      const checked = Object.keys(state.watched).filter((k) => k.startsWith(prefix)).length;
-      const poster = tvjson.poster_path || resolveData.poster_path || undefined;
-
-      if (isChecked && checked < total) {
-        const episodeKeys: string[] = [];
-        for (const s of tvjson.seasons) {
-          for (const e of s.episodes) {
-            episodeKeys.push(`tv:${idToFetch}:S${s.season_number}:E${e.episode_number}`);
-          }
-        }
-        dispatch({ type: "BULK_SET_EPISODES", keys: episodeKeys, checked: true });
-        dispatch({
-          type: "UPDATE_SERIES_META",
-          slug: item.id,
-          meta: { tmdbId: idToFetch, totalEpisodes: total, checkedEpisodes: total, totalRuntime: tvjson.runtime || 0, poster, fetchedAt: Date.now() },
-        });
-        return;
-      }
-
-      dispatch({
-        type: "UPDATE_SERIES_META",
-        slug: item.id,
-        meta: { tmdbId: idToFetch, totalEpisodes: total, checkedEpisodes: checked, totalRuntime: tvjson.runtime || 0, poster, fetchedAt: Date.now() },
-      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(msg);
       setError(friendlyError(msg));
     } finally {
-      setResolving(false);
+      setLoading(false);
     }
   };
 
-  const refreshEpisodes = async () => {
-    if (isMovie) return;
-    setTvData(null);
-    setError(null);
-    await handleExpand(true);
+  const toggleExpanded = () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && !tvData) loadEpisodes();
+  };
+
+  const retry = () => {
+    setExpanded(true);
+    loadEpisodes();
   };
 
   const toggleEpisode = (seasonNumber: number, episodeNumber: number) => {
-    if (!resolvedTmdbId) return;
-    const key = `tv:${resolvedTmdbId}:S${seasonNumber}:E${episodeNumber}`;
-    const wasChecked = !!state.watched[key];
-    dispatch({ type: "TOGGLE_WATCHED", key });
-
-    // Derive the post-toggle count from the actual watched set rather than
-    // blind +1/-1 arithmetic, so the meta stays correct even if it had drifted.
-    const prefix = `tv:${resolvedTmdbId}:`;
-    const checkedKeys = new Set(Object.keys(state.watched).filter((k) => k.startsWith(prefix)));
-    if (wasChecked) checkedKeys.delete(key);
-    else checkedKeys.add(key);
-    const newChecked = checkedKeys.size;
-    const total = totalEpisodesKnown || 0;
-
-    if (newChecked === total && total > 0) {
-      dispatch({ type: "SET_WATCHED", key: `series:${item.id}`, checked: true });
-    } else {
-      dispatch({ type: "SET_WATCHED", key: `series:${item.id}`, checked: false });
-    }
-
     dispatch({
-      type: "UPDATE_SERIES_META",
-      slug: item.id,
-      meta: {
-        tmdbId: resolvedTmdbId,
-        totalEpisodes: total,
-        checkedEpisodes: newChecked,
-        totalRuntime: tvData?.runtime || 0,
-        poster: seriesMeta?.poster,
-        fetchedAt: Date.now(),
-      },
-    });
-  };
-
-  const markAllEpisodes = (watched: boolean) => {
-    if (!tvData || !resolvedTmdbId) return;
-    const episodeKeys: string[] = [];
-    for (const s of tvData.seasons) {
-      for (const e of s.episodes) {
-        episodeKeys.push(`tv:${resolvedTmdbId}:S${s.season_number}:E${e.episode_number}`);
-      }
-    }
-    dispatch({ type: "BULK_SET_EPISODES", keys: episodeKeys, checked: watched });
-    dispatch({ type: "SET_WATCHED", key: `series:${item.id}`, checked: watched });
-    dispatch({
-      type: "UPDATE_SERIES_META",
-      slug: item.id,
-      meta: {
-        tmdbId: resolvedTmdbId,
-        totalEpisodes: episodeKeys.length,
-        checkedEpisodes: watched ? episodeKeys.length : 0,
-        totalRuntime: tvData.runtime || 0,
-        poster: seriesMeta?.poster,
-        fetchedAt: Date.now(),
-      },
+      type: "TOGGLE_EPISODE",
+      key: episodeKey(item.tmdbId, seasonNumber, episodeNumber),
+      seriesKey: watchedKey,
+      episodeKeys,
     });
   };
 
@@ -280,7 +130,7 @@ export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast
           className={`check ${isChecked ? "checked" : ""}`}
           onClick={toggleWatched}
           aria-pressed={isChecked}
-          aria-label={isMovie ? `Mark "${item.title}" as ${isChecked ? "unwatched" : "watched"}` : `Mark "${item.title}" as ${isChecked ? "not started" : "started"}`}
+          aria-label={isMovie ? `Mark "${item.title}" as ${isChecked ? "unwatched" : "watched"}` : `Mark "${item.title}" as ${isChecked ? "incomplete" : "complete"}`}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
             <polyline points="20 6 9 17 4 12" />
@@ -308,26 +158,21 @@ export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast
             </div>
           </div>
           <div className="meta-text">
-            {isMovie ? "Movie" : "Series"} {!isMovie && tvData ? formatEpisodeCount(tvData) : ""}
-            {isMovie && movieMeta?.runtime ? <span className="meta-text--inline">• {formatRuntime(movieMeta.runtime)}</span> : null}
-            {!isMovie && tvData?.runtime ? <span className="meta-text--inline">• {formatRuntime(tvData.runtime)}</span> : null}
-            {isMovie && movieMeta?.rating ? <span className="meta-text--inline">• ⭐ {formatRating(movieMeta.rating)}</span> : null}
-            {!isMovie && tvData?.rating ? <span className="meta-text--inline">• ⭐ {formatRating(tvData.rating)}</span> : null}
-            {!isMovie && !isChecked && tvData && checkedEpisodesCount > 0 && (
-              <span className="meta-text--inline meta-text--accent">{Math.round((checkedEpisodesCount / totalEpisodesKnown) * 100)}% watched</span>
-            )}
+            {isMovie ? "Movie" : "Series"} {!isMovie && progress.total > 0 ? `· ${progress.total} episodes` : ""}
+            {runtime ? <span className="meta-text--inline">• {formatRuntime(runtime)}</span> : null}
+            {rating ? <span className="meta-text--inline">• ⭐ {formatRating(rating)}</span> : null}
           </div>
           {/* Series progress preview (collapsed state) */}
-          {!isMovie && !isChecked && seriesMeta && seriesMeta.totalEpisodes > 0 && (
+          {!isMovie && !isChecked && progress.checked > 0 && (
             <div className="series-preview">
               <div className="series-preview__bar">
                 <div
                   className="series-preview__fill"
-                  style={{ width: `${Math.round((seriesMeta.checkedEpisodes / seriesMeta.totalEpisodes) * 100)}%` }}
+                  style={{ width: `${Math.round(progress.fraction * 100)}%` }}
                 />
               </div>
               <span className="series-preview__label">
-                {seriesMeta.checkedEpisodes}/{seriesMeta.totalEpisodes} episodes
+                {progress.checked}/{progress.total} episodes
               </span>
             </div>
           )}
@@ -340,19 +185,19 @@ export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast
           <>
             <button
               className="button button--ghost"
-              onClick={() => handleExpand()}
+              onClick={toggleExpanded}
               aria-expanded={expanded}
               aria-label={`${expanded ? "Collapse" : "Expand"} episode list for ${item.title}`}
-              disabled={resolving}
+              disabled={loading && !tvData}
             >
-              {expanded ? "Collapse" : resolving ? "Loading…" : "Expand"}
+              {expanded ? "Collapse" : loading ? "Loading…" : "Expand"}
             </button>
             {tvData && (
               <button
                 className="button button--ghost refresh-btn"
-                onClick={refreshEpisodes}
+                onClick={loadEpisodes}
                 aria-label={`Refresh episode data for ${item.title}`}
-                disabled={resolving}
+                disabled={loading}
                 title="Refresh to check for new episodes"
               >
                 🔄 Refresh
@@ -368,14 +213,14 @@ export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast
           <div className="error-panel__message">
             <strong>Error:</strong> {error}
           </div>
-          <button className="button button--ghost error-panel__retry" onClick={() => { setError(null); handleExpand(); }}>
+          <button className="button button--ghost error-panel__retry" onClick={retry}>
             Try Again
           </button>
         </div>
       )}
 
       {/* Loading skeleton */}
-      {!isMovie && expanded && resolving && <EpisodeListSkeleton />}
+      {!isMovie && expanded && loading && !tvData && <EpisodeListSkeleton />}
 
       {/* Episode list with smooth expand */}
       <div className={`episodes-collapsible ${!isMovie && expanded && tvData ? "episodes-collapsible--open" : ""}`}>
@@ -383,17 +228,20 @@ export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast
         {!isMovie && tvData && (
           <div className="episodes episodes-panel">
             <div className="episode-actions">
-              <button className="button button--ghost episode-btn" onClick={() => markAllEpisodes(true)} aria-label={`Mark all episodes of ${item.title} as watched`}>
+              <button className="button button--ghost episode-btn" onClick={() => setAllEpisodes(true)} aria-label={`Mark all episodes of ${item.title} as watched`}>
                 Mark All Watched
               </button>
-              <button className="button button--ghost episode-btn" onClick={() => markAllEpisodes(false)} aria-label={`Mark all episodes of ${item.title} as unwatched`}>
+              <button className="button button--ghost episode-btn" onClick={() => setAllEpisodes(false)} aria-label={`Mark all episodes of ${item.title} as unwatched`}>
                 Mark All Unwatched
               </button>
-              <div className="episode-actions__count">{checkedEpisodesCount} of {totalEpisodesKnown} episodes watched</div>
+              <div className="episode-actions__count">{progress.checked} of {progress.total} episodes watched</div>
             </div>
-            {tvData.seasons.map((s, idx) => {
-              const sp = seasonProgress?.[idx];
-              const pct = sp && sp.total > 0 ? Math.round((sp.checked / sp.total) * 100) : 0;
+            {tvData.seasons.map((s) => {
+              const total = s.episodes.length;
+              const checked = s.episodes.filter(
+                (e) => watched[episodeKey(item.tmdbId, s.season_number, e.episode_number)]
+              ).length;
+              const pct = total > 0 ? Math.round((checked / total) * 100) : 0;
               return (
                 <div key={s.season_number} style={{ display: "grid", gap: 6 }}>
                   <div className="season-header">
@@ -402,12 +250,12 @@ export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast
                       <div className="season-progress__bar">
                         <div className="season-progress__fill" style={{ width: `${pct}%` }} />
                       </div>
-                      <span className="season-progress__label">{sp?.checked ?? 0}/{sp?.total ?? 0}</span>
+                      <span className="season-progress__label">{checked}/{total}</span>
                     </div>
                   </div>
                   {s.episodes.map((e) => {
-                    const key = `tv:${resolvedTmdbId}:S${s.season_number}:E${e.episode_number}`;
-                    const epChecked = !!state.watched[key];
+                    const key = episodeKey(item.tmdbId, s.season_number, e.episode_number);
+                    const epChecked = !!watched[key];
                     return (
                       <div key={key} className="episode-item">
                         <button
@@ -439,9 +287,4 @@ export default function WatchItem({ item, state, dispatch, isNextUp, onUndoToast
       </div>
     </div>
   );
-}
-
-function formatEpisodeCount(tvData: TVSeriesData): string {
-  const total = tvData.seasons.reduce((acc, s) => acc + (s.episodes?.length ?? 0), 0);
-  return `· ${total} episodes`;
 }

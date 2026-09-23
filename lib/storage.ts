@@ -5,37 +5,22 @@ const V2_KEY = "sw-watch-v2";
 
 // --- Types ---
 
-export type MovieMeta = {
-  tmdbId: number;
-  runtime: number;   // minutes
-  rating: number;    // 0-10
-  poster?: string;   // TMDB poster_path
-  fetchedAt: number; // timestamp
-};
-
-export type SeriesMeta = {
-  tmdbId: number;
-  totalEpisodes: number;
-  checkedEpisodes: number;
-  totalRuntime: number; // minutes
-  poster?: string;      // TMDB poster_path
-  fetchedAt: number;    // timestamp
-};
+// "movie:{slug}" | "series:{slug}" | "tv:{tmdbId}:S{n}:E{n}"
+export type Watched = Record<string, boolean>;
 
 export type StorageState = {
-  watched: Record<string, boolean>;     // "movie:{slug}" | "tv:{tmdbId}:S{n}:E{n}" | "series:{slug}"
-  movieMeta: Record<string, MovieMeta>; // keyed by item slug
-  seriesMeta: Record<string, SeriesMeta>; // keyed by item slug
+  watched: Watched;
 };
 
 // --- Actions (for useReducer) ---
 
 export type StorageAction =
   | { type: "TOGGLE_WATCHED"; key: string }
-  | { type: "BULK_SET_EPISODES"; keys: string[]; checked: boolean }
-  | { type: "UPDATE_MOVIE_META"; slug: string; meta: MovieMeta }
-  | { type: "UPDATE_SERIES_META"; slug: string; meta: SeriesMeta }
-  | { type: "SET_WATCHED"; key: string; checked: boolean }
+  // Mark a whole series complete (flag + every known episode) or clear it
+  // (flag + every stored episode under the prefix, known or not).
+  | { type: "SET_SERIES"; seriesKey: string; prefix: string; episodeKeys: string[]; checked: boolean }
+  // Toggle one episode and keep the series flag in sync with the episode set.
+  | { type: "TOGGLE_EPISODE"; key: string; seriesKey: string; episodeKeys: string[] }
   | { type: "HYDRATE"; state: StorageState }
   | { type: "RESET" };
 
@@ -52,37 +37,32 @@ export function storageReducer(state: StorageState, action: StorageAction): Stor
       }
       return { ...state, watched };
     }
-    case "SET_WATCHED": {
+    case "SET_SERIES": {
       const watched = { ...state.watched };
       if (action.checked) {
-        watched[action.key] = true;
+        watched[action.seriesKey] = true;
+        for (const key of action.episodeKeys) watched[key] = true;
       } else {
-        delete watched[action.key];
-      }
-      return { ...state, watched };
-    }
-    case "BULK_SET_EPISODES": {
-      const watched = { ...state.watched };
-      for (const key of action.keys) {
-        if (action.checked) {
-          watched[key] = true;
-        } else {
-          delete watched[key];
+        delete watched[action.seriesKey];
+        for (const key of Object.keys(watched)) {
+          if (key.startsWith(action.prefix)) delete watched[key];
         }
       }
       return { ...state, watched };
     }
-    case "UPDATE_MOVIE_META": {
-      return {
-        ...state,
-        movieMeta: { ...state.movieMeta, [action.slug]: action.meta },
-      };
-    }
-    case "UPDATE_SERIES_META": {
-      return {
-        ...state,
-        seriesMeta: { ...state.seriesMeta, [action.slug]: action.meta },
-      };
+    case "TOGGLE_EPISODE": {
+      const watched = { ...state.watched };
+      if (watched[action.key]) {
+        delete watched[action.key];
+      } else {
+        watched[action.key] = true;
+      }
+      if (action.episodeKeys.length > 0 && action.episodeKeys.every((k) => watched[k])) {
+        watched[action.seriesKey] = true;
+      } else {
+        delete watched[action.seriesKey];
+      }
+      return { ...state, watched };
     }
     case "HYDRATE":
       return action.state;
@@ -94,7 +74,19 @@ export function storageReducer(state: StorageState, action: StorageAction): Stor
 // --- Empty state ---
 
 export function emptyState(): StorageState {
-  return { watched: {}, movieMeta: {}, seriesMeta: {} };
+  return { watched: {} };
+}
+
+// Accepts current and legacy (movieMeta/seriesMeta) shapes; keeps only true flags.
+function sanitize(parsed: unknown): StorageState | null {
+  if (!parsed || typeof parsed !== "object") return null;
+  const raw = (parsed as { watched?: unknown }).watched;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const watched: Watched = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (value === true) watched[key] = true;
+  }
+  return { watched };
 }
 
 // --- Persistence ---
@@ -116,23 +108,17 @@ export function loadState(): StorageState {
     // Try v2 first
     const v2 = localStorage.getItem(V2_KEY);
     if (v2) {
-      const parsed = JSON.parse(v2);
-      // Basic shape validation
-      if (parsed && typeof parsed.watched === "object") {
-        return {
-          watched: parsed.watched ?? {},
-          movieMeta: parsed.movieMeta ?? {},
-          seriesMeta: parsed.seriesMeta ?? {},
-        };
-      }
+      const state = sanitize(JSON.parse(v2));
+      if (state) return state;
     }
 
-    // Fall back to v1 migration
+    // Fall back to v1 migration. Drop the v1 key afterwards so a later reset
+    // can't resurrect it.
     const v1 = localStorage.getItem(V1_KEY);
     if (v1) {
-      const old = JSON.parse(v1) as Record<string, boolean>;
-      const migrated = migrateV1(old);
+      const migrated = migrateV1(JSON.parse(v1) as Record<string, boolean>);
       saveState(migrated);
+      localStorage.removeItem(V1_KEY);
       return migrated;
     }
   } catch {
@@ -145,6 +131,7 @@ export function resetState(): void {
   try {
     if (typeof window !== "undefined") {
       localStorage.removeItem(V2_KEY);
+      localStorage.removeItem(V1_KEY);
     }
   } catch {}
 }
@@ -167,58 +154,12 @@ function migrateV1(old: Record<string, boolean>): StorageState {
     }
 
     // Movie/series completion keys: movie:{slug}
-    if (key.startsWith("movie:") && !key.startsWith("movie-meta:")) {
+    if (key.startsWith("movie:")) {
       const slug = key.slice("movie:".length);
-      if (seriesSlugs.has(slug)) {
-        // Series completion → use series:{slug} key
-        state.watched[`series:${slug}`] = true;
-      } else {
-        state.watched[key] = true;
-      }
-      continue;
+      // Series completion → use series:{slug} key
+      state.watched[seriesSlugs.has(slug) ? `series:${slug}` : key] = true;
     }
-
-    // Movie metadata: movie-meta:{slug}:{tmdbId}:{runtime}:{rating}:{timestamp}
-    if (key.startsWith("movie-meta:")) {
-      const parts = key.split(":");
-      const slug = parts[1];
-      const tmdbId = Number(parts[2]) || 0;
-      const runtime = Number(parts[3]) || 0;
-      const rating = Number(parts[4]) || 0;
-      const fetchedAt = Number(parts[5]) || 0;
-      if (slug) {
-        state.movieMeta[slug] = { tmdbId, runtime, rating, fetchedAt };
-      }
-      continue;
-    }
-
-    // Series metadata: series-meta:{slug}:{tmdbId}:{total}:{checked}:{totalRuntime}:{timestamp}
-    // Also handle old format: series-meta:{slug}:{tmdbId}:{total}:{checked}:{timestamp}
-    if (key.startsWith("series-meta:")) {
-      const parts = key.split(":");
-      const slug = parts[1];
-      const tmdbId = Number(parts[2]) || 0;
-      const totalEpisodes = Number(parts[3]) || 0;
-      const checkedEpisodes = Number(parts[4]) || 0;
-
-      let totalRuntime = 0;
-      let fetchedAt = 0;
-
-      if (parts.length >= 7) {
-        // New v1 format with runtime
-        const rt = Number(parts[5]);
-        if (rt > 0 && rt < 100000) totalRuntime = rt;
-        fetchedAt = Number(parts[6]) || 0;
-      } else {
-        // Old v1 format without runtime
-        fetchedAt = Number(parts[5]) || 0;
-      }
-
-      if (slug) {
-        state.seriesMeta[slug] = { tmdbId, totalEpisodes, checkedEpisodes, totalRuntime, fetchedAt };
-      }
-      continue;
-    }
+    // movie-meta:/series-meta: keys are dropped — metadata now comes from the server
   }
 
   return state;
@@ -232,15 +173,10 @@ export function exportState(): string {
 }
 
 export function importState(json: string): StorageState {
-  const parsed = JSON.parse(json);
-  if (!parsed || typeof parsed.watched !== "object") {
+  const state = sanitize(JSON.parse(json));
+  if (!state) {
     throw new Error("Invalid import data: missing watched map");
   }
-  const state: StorageState = {
-    watched: parsed.watched ?? {},
-    movieMeta: parsed.movieMeta ?? {},
-    seriesMeta: parsed.seriesMeta ?? {},
-  };
   saveState(state);
   return state;
 }
