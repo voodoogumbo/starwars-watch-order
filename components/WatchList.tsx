@@ -9,7 +9,6 @@ import {
   loadState,
   persistingReducer,
   saveState,
-  StorageAction,
   StorageState,
 } from "@/lib/storage";
 import WatchItem from "./WatchItem";
