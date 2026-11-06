@@ -6,11 +6,12 @@ import { fetchSeries, TmdbError } from "@/lib/tmdb";
 // general-purpose TMDB proxy for our token.
 const SERIES_IDS = new Set(watchOrder.filter((i) => i.type === "series").map((i) => i.tmdbId));
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  const id = Number(params.id);
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id: rawId } = await params;
+  const id = Number(rawId);
   if (!SERIES_IDS.has(id)) {
     return NextResponse.json(
-      { error: "Unknown series", message: `Series ${params.id} is not in the watch order` },
+      { error: "Unknown series", message: `Series ${rawId} is not in the watch order` },
       { status: 404 }
     );
   }
